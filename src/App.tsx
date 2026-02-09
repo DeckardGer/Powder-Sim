@@ -100,7 +100,7 @@ function App() {
   }
 
   return (
-    <div className="relative h-screen w-screen bg-background">
+    <div className="relative h-screen w-screen bg-background pb-8">
       <SimulationCanvas
         gpuContext={gpu.context}
         onStatsUpdate={handleStatsUpdate}

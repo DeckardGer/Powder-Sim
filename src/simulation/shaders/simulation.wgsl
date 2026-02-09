@@ -37,7 +37,7 @@ fn getDensity(element: u32) -> u32 {
   }
 }
 
-// Hash-based RNG using frame counter and block position
+// Hash-based RNG — returns a pseudo-random u32
 fn hash(seed: u32) -> u32 {
   var x = seed;
   x ^= x >> 16u;
@@ -56,13 +56,11 @@ override WORKGROUP_SIZE: u32 = 16u;
 
 @compute @workgroup_size(WORKGROUP_SIZE, WORKGROUP_SIZE)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
-  // Each thread handles one 2x2 Margolus block
   let bx = gid.x * 2u + params.offset_x;
   let by = gid.y * 2u + params.offset_y;
 
   // Bounds check: all 4 cells of the 2x2 block must be in grid
   if (bx + 1u >= params.width || by + 1u >= params.height) {
-    // For edge cells, copy through unchanged
     if (bx < params.width && by < params.height) {
       output[idx(bx, by)] = input[idx(bx, by)];
     }
@@ -79,82 +77,77 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   }
 
   // Read the 2x2 block
-  // Layout:  tl(bx,by)   tr(bx+1,by)
-  //          bl(bx,by+1) br(bx+1,by+1)
-  // y increases downward, so bl/br are BELOW tl/tr
   var tl = input[idx(bx, by)];
   var tr = input[idx(bx + 1u, by)];
   var bl = input[idx(bx, by + 1u)];
   var br = input[idx(bx + 1u, by + 1u)];
 
-  // Per-block random
-  let rng = hash(bx * 1973u + by * 9277u + params.frame * 26699u);
-  let rand_bit = rng & 1u;
+  // Multiple independent random values from different seeds
+  let rng0 = hash(bx * 1973u + by * 9277u + params.frame * 26699u);
+  let rng1 = hash(rng0 ^ 0xDEADBEEFu);
+  let rng2 = hash(rng1 ^ 0xCAFEBABEu);
+  let rand_bit = rng0 & 1u;
 
-  // --- Apply gravity and movement rules ---
-  // Strategy: check each possible swap independently.
-  // Priority: straight down > diagonal down > lateral spread
+  // Probabilistic movement: ~75% chance a block processes gravity.
+  // This breaks lockstep wavefronts and creates natural velocity variation.
+  // Use bits 4-5 of rng1 so it's independent from rand_bit.
+  let move_chance = (rng1 >> 4u) & 3u; // 0-3, skip on 0 = 25% skip rate
+  let should_move = move_chance != 0u;
 
   let etl = getElement(tl);
   let etr = getElement(tr);
   let ebl = getElement(bl);
   let ebr = getElement(br);
 
-  // Try to drop left column: TL falls to BL
-  let can_drop_l = getDensity(etl) > getDensity(ebl) && etl != STONE;
-  // Try to drop right column: TR falls to BR
-  let can_drop_r = getDensity(etr) > getDensity(ebr) && etr != STONE;
+  if (should_move) {
+    // Try to drop left column: TL falls to BL
+    let can_drop_l = getDensity(etl) > getDensity(ebl) && etl != STONE;
+    // Try to drop right column: TR falls to BR
+    let can_drop_r = getDensity(etr) > getDensity(ebr) && etr != STONE;
 
-  if (can_drop_l && can_drop_r) {
-    // Both columns fall
-    let tmp = tl; tl = bl; bl = tmp;
-    let tmp2 = tr; tr = br; br = tmp2;
-  } else if (can_drop_l && !can_drop_r) {
-    // Only left falls straight down
-    let tmp = tl; tl = bl; bl = tmp;
-  } else if (can_drop_r && !can_drop_l) {
-    // Only right falls straight down
-    let tmp = tr; tr = br; br = tmp;
-  } else {
-    // Neither can fall straight — try diagonal slides
-    // Re-read elements (they haven't changed since no swap above)
-    let d_tl = getDensity(etl);
-    let d_tr = getDensity(etr);
-    let d_bl = getDensity(ebl);
-    let d_br = getDensity(ebr);
-
-    // TL wants to fall but BL blocks — slide to BR if lighter
-    let tl_slide_right = d_tl > d_br && d_tl > 0u && d_bl >= d_tl && etl != STONE;
-    // TR wants to fall but BR blocks — slide to BL if lighter
-    let tr_slide_left = d_tr > d_bl && d_tr > 0u && d_br >= d_tr && etr != STONE;
-
-    if (tl_slide_right && tr_slide_left) {
-      // Both want to slide diagonally — pick one randomly
-      if (rand_bit == 0u) {
-        let tmp = tl; tl = br; br = tmp;
-      } else {
-        let tmp = tr; tr = bl; bl = tmp;
-      }
-    } else if (tl_slide_right) {
-      let tmp = tl; tl = br; br = tmp;
-    } else if (tr_slide_left) {
-      let tmp = tr; tr = bl; bl = tmp;
+    if (can_drop_l && can_drop_r) {
+      let tmp = tl; tl = bl; bl = tmp;
+      let tmp2 = tr; tr = br; br = tmp2;
+    } else if (can_drop_l) {
+      let tmp = tl; tl = bl; bl = tmp;
+    } else if (can_drop_r) {
+      let tmp = tr; tr = br; br = tmp;
     } else {
-      // No vertical movement possible — try lateral spread (for water)
-      // Water spreads sideways randomly
-      if (etl == WATER && etr == EMPTY && rand_bit == 0u) {
-        let tmp = tl; tl = tr; tr = tmp;
-      } else if (etr == WATER && etl == EMPTY && rand_bit == 1u) {
-        let tmp = tr; tr = tl; tl = tmp;
-      } else if (ebl == WATER && ebr == EMPTY && rand_bit == 0u) {
-        let tmp = bl; bl = br; br = tmp;
-      } else if (ebr == WATER && ebl == EMPTY && rand_bit == 1u) {
-        let tmp = br; br = bl; bl = tmp;
+      // Try diagonal slides
+      let d_tl = getDensity(etl);
+      let d_tr = getDensity(etr);
+      let d_bl = getDensity(ebl);
+      let d_br = getDensity(ebr);
+
+      let tl_slide = d_tl > d_br && d_tl > 0u && d_bl >= d_tl && etl != STONE;
+      let tr_slide = d_tr > d_bl && d_tr > 0u && d_br >= d_tr && etr != STONE;
+
+      if (tl_slide && tr_slide) {
+        if (rand_bit == 0u) {
+          let tmp = tl; tl = br; br = tmp;
+        } else {
+          let tmp = tr; tr = bl; bl = tmp;
+        }
+      } else if (tl_slide) {
+        let tmp = tl; tl = br; br = tmp;
+      } else if (tr_slide) {
+        let tmp = tr; tr = bl; bl = tmp;
+      } else {
+        // Lateral spread for water — use a second random bit for direction
+        let lat_bit = (rng2 >> 2u) & 1u;
+        if (etl == WATER && etr == EMPTY && lat_bit == 0u) {
+          let tmp = tl; tl = tr; tr = tmp;
+        } else if (etr == WATER && etl == EMPTY && lat_bit == 1u) {
+          let tmp = tr; tr = tl; tl = tmp;
+        } else if (ebl == WATER && ebr == EMPTY && lat_bit == 0u) {
+          let tmp = bl; bl = br; br = tmp;
+        } else if (ebr == WATER && ebl == EMPTY && lat_bit == 1u) {
+          let tmp = br; br = bl; bl = tmp;
+        }
       }
     }
   }
 
-  // Write the block back
   output[idx(bx, by)] = tl;
   output[idx(bx + 1u, by)] = tr;
   output[idx(bx, by + 1u)] = bl;

@@ -57,9 +57,10 @@ export function SimulationCanvas({
           );
           fpsCounterRef.current.frames = 0;
           fpsCounterRef.current.lastTime = now;
+          simulation.requestParticleCount();
           onStatsUpdate?.({
             fps,
-            particleCount: 0,
+            particleCount: simulation.particleCount,
             frameCount: simulation.frame,
           });
         }

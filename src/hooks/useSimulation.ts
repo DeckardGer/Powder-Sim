@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 import type { PowderSimulation } from "@/simulation/simulation";
 import type { BrushConfig } from "@/types";
 import { DEFAULT_BRUSH, DEFAULT_CONFIG, ElementType } from "@/types";
@@ -15,6 +15,7 @@ export function useSimulation() {
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
   const isDrawingRef = useRef(false);
   const pendingCellsRef = useRef<Map<number, PendingCell>>(new Map());
+  const holdIntervalRef = useRef<number>(0);
 
   const setSimulation = useCallback((sim: PowderSimulation | null) => {
     simulationRef.current = sim;
@@ -69,7 +70,6 @@ export function useSimulation() {
         )
           continue;
 
-        // Per-particle random color variation (bits 8-15)
         const colorVar = Math.floor(Math.random() * 256);
         const value =
           brush.element === ElementType.Empty
@@ -120,6 +120,29 @@ export function useSimulation() {
     pendingCellsRef.current.clear();
   }, []);
 
+  /** Start continuous stamp interval while holding mouse */
+  const startHoldInterval = useCallback(() => {
+    stopHoldInterval();
+    holdIntervalRef.current = window.setInterval(() => {
+      const pos = lastPosRef.current;
+      if (!isDrawingRef.current || !pos) return;
+      stamp(pos.x, pos.y);
+      flushCells();
+    }, 1000 / 30); // 30 stamps per second while holding
+  }, [stamp, flushCells]);
+
+  const stopHoldInterval = useCallback(() => {
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = 0;
+    }
+  }, []);
+
+  // Clean up interval on unmount
+  useEffect(() => {
+    return () => stopHoldInterval();
+  }, [stopHoldInterval]);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const canvas = e.currentTarget;
@@ -129,8 +152,9 @@ export function useSimulation() {
       lastPosRef.current = pos;
       stamp(pos.x, pos.y);
       flushCells();
+      startHoldInterval();
     },
-    [canvasToGrid, stamp, flushCells]
+    [canvasToGrid, stamp, flushCells, startHoldInterval]
   );
 
   const onPointerMove = useCallback(
@@ -155,7 +179,8 @@ export function useSimulation() {
   const onPointerUp = useCallback(() => {
     isDrawingRef.current = false;
     lastPosRef.current = null;
-  }, []);
+    stopHoldInterval();
+  }, [stopHoldInterval]);
 
   const clearSimulation = useCallback(() => {
     simulationRef.current?.clear();
