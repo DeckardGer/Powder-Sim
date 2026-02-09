@@ -838,11 +838,27 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let steam_r = (etr == STEAM && ebr == EMPTY) || (etr == EMPTY && ebr == STEAM);
     let smoke_l = (etl == SMOKE && ebl == EMPTY) || (etl == EMPTY && ebl == SMOKE);
     let smoke_r = (etr == SMOKE && ebr == EMPTY) || (etr == EMPTY && ebr == SMOKE);
-    let fire_can_move = gas_rng < 20u;  // 20% → ~2-3 rises/frame
+    // Young fire (freshly spawned, lifetime > 90 out of 60-119) drifts down
+    // briefly before rising. Block rise and sometimes push downward.
+    let young_fire_rng_l = hash(rng1 ^ 0xF12E0001u);
+    let young_fire_rng_r = hash(rng1 ^ 0xF12E0002u);
+    let fire_lt_l = max(getLifetime(tl) * u32(etl == FIRE), getLifetime(bl) * u32(ebl == FIRE));
+    let fire_lt_r = max(getLifetime(tr) * u32(etr == FIRE), getLifetime(br) * u32(ebr == FIRE));
+    let young_l = fire_l && fire_lt_l > 100u;
+    let young_r = fire_r && fire_lt_r > 100u;
+    // Young fire: 20% sink, 40% stall, 40% rise. Mature fire: normal 20% rise.
+    let yf_chance_l = young_fire_rng_l % 100u;
+    let yf_chance_r = young_fire_rng_r % 100u;
+    var fire_can_move_l = gas_rng < 20u;
+    var fire_can_move_r = gas_rng < 20u;
+    var fire_sink_l = false;
+    var fire_sink_r = false;
+    if (young_l) { fire_can_move_l = yf_chance_l >= 60u; fire_sink_l = yf_chance_l < 20u; }
+    if (young_r) { fire_can_move_r = yf_chance_r >= 60u; fire_sink_r = yf_chance_r < 20u; }
     let steam_can_move = gas_rng < 35u; // 35% → ~4-5 rises/frame
     let smoke_can_move = gas_rng < 30u; // 30% → ~3-4 rises/frame
-    let gas_ok_l = (!fire_l || fire_can_move) && (!steam_l || steam_can_move) && (!smoke_l || smoke_can_move);
-    let gas_ok_r = (!fire_r || fire_can_move) && (!steam_r || steam_can_move) && (!smoke_r || smoke_can_move);
+    let gas_ok_l = (!fire_l || fire_can_move_l) && (!steam_l || steam_can_move) && (!smoke_l || smoke_can_move);
+    let gas_ok_r = (!fire_r || fire_can_move_r) && (!steam_r || steam_can_move) && (!smoke_r || smoke_can_move);
 
     let drop_l = can_drop_l && (!sw_l || sand_liquid_move) && gas_ok_l && (!lava_l || lava_move);
     let drop_r = can_drop_r && (!sw_r || sand_liquid_move) && gas_ok_r && (!lava_r || lava_move);
@@ -895,6 +911,15 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       } else if (tr_slide) {
         let tmp = tr; tr = bl; bl = tmp;
       }
+    }
+
+    // Young fire sinking: push freshly spawned fire downward briefly.
+    // Only when fire is on top and empty is below (fire hasn't risen yet).
+    if (fire_sink_l && getElement(tl) == FIRE && getElement(bl) == EMPTY) {
+      let tmp = tl; tl = bl; bl = tmp;
+    }
+    if (fire_sink_r && getElement(tr) == FIRE && getElement(br) == EMPTY) {
+      let tmp = tr; tr = br; br = tmp;
     }
   }
 
@@ -1064,6 +1089,31 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       // Top row: one smoke + one empty
       if ((sk_tl == SMOKE && sk_tr == EMPTY) || (sk_tr == SMOKE && sk_tl == EMPTY)) {
         if ((sk_bl != EMPTY && sk_br != EMPTY) || smoke_free_spread) {
+          let tmp = tl; tl = tr; tr = tmp;
+        }
+      }
+    }
+
+    // Fire lateral spread: chaotic flicker. Higher free spread than steam/smoke
+    // to give fire a dancing, turbulent look rather than a straight column.
+    {
+      let fi_tl = getElement(tl);
+      let fi_tr = getElement(tr);
+      let fi_bl = getElement(bl);
+      let fi_br = getElement(br);
+      let fire_spread_rng = hash(rng0 ^ 0xf12eeeeeu);
+      let fire_free_spread = (fire_spread_rng % 100u) < 3u; // ~3%
+
+      // Bottom row: one fire + one empty
+      if ((fi_bl == FIRE && fi_br == EMPTY) || (fi_br == FIRE && fi_bl == EMPTY)) {
+        if ((fi_tl != EMPTY && fi_tr != EMPTY) || fire_free_spread) {
+          let tmp = bl; bl = br; br = tmp;
+        }
+      }
+
+      // Top row: one fire + one empty
+      if ((fi_tl == FIRE && fi_tr == EMPTY) || (fi_tr == FIRE && fi_tl == EMPTY)) {
+        if ((fi_bl != EMPTY && fi_br != EMPTY) || fire_free_spread) {
           let tmp = tl; tl = tr; tr = tmp;
         }
       }

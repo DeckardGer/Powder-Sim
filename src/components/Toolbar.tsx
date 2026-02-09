@@ -42,7 +42,7 @@ export function Toolbar({
           {ELEMENTS.map(({ type, label, color }) => (
             <button
               key={type}
-              className={`flex items-center gap-2 px-2 py-1 text-left text-[11px] uppercase tracking-wider transition-none ${
+              className={`flex items-center gap-2 px-2 py-1 text-left text-[11px] uppercase tracking-wider transition-none outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] ${
                 brush.element === type
                   ? "bg-foreground/10 text-foreground"
                   : "text-muted-foreground hover:text-foreground"
