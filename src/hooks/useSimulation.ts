@@ -17,6 +17,7 @@ export function useSimulation(
   const brushRef = useRef<BrushConfig>({ ...DEFAULT_BRUSH, size: initialBrushSize });
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
   const isDrawingRef = useRef(false);
+  const isErasingRef = useRef(false);
   const pendingCellsRef = useRef<Map<number, PendingCell>>(new Map());
   const holdIntervalRef = useRef<number>(0);
 
@@ -60,6 +61,7 @@ export function useSimulation(
   /** Paint a circular brush stamp at (cx, cy) */
   const stamp = useCallback((cx: number, cy: number) => {
     const brush = brushRef.current;
+    const element = isErasingRef.current ? ElementType.Empty : brush.element;
     const r = brush.size;
     const rSq = r * r;
 
@@ -72,16 +74,16 @@ export function useSimulation(
 
         const colorVar = Math.floor(Math.random() * 256);
         let value: number;
-        if (brush.element === ElementType.Empty) {
+        if (element === ElementType.Empty) {
           value = 0;
-        } else if (brush.element === ElementType.Fire) {
+        } else if (element === ElementType.Fire) {
           const lifetime = 60 + Math.floor(Math.random() * 60); // 60-119
-          value = brush.element | (colorVar << 8) | (lifetime << 16);
-        } else if (brush.element === ElementType.Steam) {
+          value = element | (colorVar << 8) | (lifetime << 16);
+        } else if (element === ElementType.Steam) {
           const lifetime = 150 + Math.floor(Math.random() * 100); // 150-249
-          value = brush.element | (colorVar << 8) | (lifetime << 16);
+          value = element | (colorVar << 8) | (lifetime << 16);
         } else {
-          value = brush.element | (colorVar << 8);
+          value = element | (colorVar << 8);
         }
 
         const key = y * gridSize + x;
@@ -155,6 +157,7 @@ export function useSimulation(
       const canvas = e.currentTarget;
       canvas.setPointerCapture(e.pointerId);
       isDrawingRef.current = true;
+      isErasingRef.current = e.button === 2;
       const pos = canvasToGrid(e.clientX, e.clientY, canvas);
       lastPosRef.current = pos;
       stamp(pos.x, pos.y);
@@ -183,6 +186,7 @@ export function useSimulation(
 
   const onPointerUp = useCallback(() => {
     isDrawingRef.current = false;
+    isErasingRef.current = false;
     lastPosRef.current = null;
     stopHoldInterval();
   }, [stopHoldInterval]);

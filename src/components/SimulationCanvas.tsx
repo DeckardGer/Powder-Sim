@@ -161,6 +161,7 @@ export function SimulationCanvas({
       ref={canvasRef}
       className="block h-full w-full"
       style={{ imageRendering: "pixelated", touchAction: "none" }}
+      onContextMenu={(e) => e.preventDefault()}
       {...pointerHandlers}
     />
   );
