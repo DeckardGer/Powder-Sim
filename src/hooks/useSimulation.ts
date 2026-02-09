@@ -82,6 +82,9 @@ export function useSimulation(
         } else if (element === ElementType.Steam) {
           const lifetime = 150 + Math.floor(Math.random() * 100); // 150-249
           value = element | (colorVar << 8) | (lifetime << 16);
+        } else if (element === ElementType.Lava) {
+          const heat = 180 + Math.floor(Math.random() * 60); // 180-239
+          value = element | (colorVar << 8) | (heat << 16);
         } else {
           value = element | (colorVar << 8);
         }

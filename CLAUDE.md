@@ -50,14 +50,14 @@ writeBuffer (uniforms x24) -> commandEncoder -> conditional write pass -> 24 com
 
 ### Cell Encoding (u32)
 
-- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7)
+- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7, Smoke=8, Oil=9, Lava=10)
 - Bits 8-15: per-particle color variation
-- Bits 16-23: lifetime (fire/steam) or heat level (stone)
+- Bits 16-23: lifetime (fire/steam/smoke) or heat level (stone/lava)
 - Bits 24-31: reserved
 
 ### Elements & Density
 
-Fire=0, Steam=1, Empty=2, Water=5, Wood=9, Sand=10, Glass=200, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, and Stone are immovable solids.
+Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Lava=7, Wood=9, Sand=10, Glass=200, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, and Stone are immovable solids. Lava is a viscous movable liquid (50% gravity drag, 30% lateral spread).
 
 ## Critical Bugs (don't regress)
 
@@ -76,7 +76,7 @@ Fire=0, Steam=1, Empty=2, Water=5, Wood=9, Sand=10, Glass=200, Stone=255. Denser
 ### Phase 1: Gravity (first 12 passes, gated by `lateral_only == 0` and `should_move`)
 
 - **Vertical drop**: per-column density comparison, swap if top is heavier
-- **Sand-water drag**: `sand_water_move` (35% chance) gates ALL sand movement through water (vertical + diagonal)
+- **Sand-liquid drag**: `sand_liquid_move` (35% chance) gates ALL sand movement through water/oil/lava (vertical + diagonal)
 - **Diagonal slide**: sand always eligible; water only with adjacent-clear check + 25% probability
 - **Sand dispersion in water**: sand can slide diagonally into water even without resting on something (50% when drag allows)
 
@@ -91,9 +91,14 @@ Fire=0, Steam=1, Empty=2, Water=5, Wood=9, Sand=10, Glass=200, Stone=255. Denser
 - **Fire + Water**: fire survives (loses 12-24 lifetime), water 60% evaporates / 40% → steam, empty → burst steam
 - **Fire + Wood**: wood ignites at ~15%/pass → becomes fire (lifetime 80-139). Fire unaffected. Chain reaction.
 - **Fire + Sand → Glass**: sand melts at ~2%/pass. Fire loses 7 lifetime per sand in block.
-- **Stone heat**: fire adds 2-3 heat/pass. Decays ~0.8%/pass. Conducts between adjacent stone (1 unit/pass).
-  - heat > 100: boils water → steam (3%/pass)
-  - heat > 150: ignites wood → fire (5%/pass)
+- **Lava + Water**: water evaporates ~50%/pass → steam. Lava loses 3-4 heat per water cell/pass. Gravity sinks lava through water (no instant solidification). Lava solidifies to stone when heat reaches 0.
+- **Lava + Sand → Glass**: ~4%/pass. Lava loses 3 heat per sand in block.
+- **Lava + Wood**: wood ignites at ~8%/pass → fire. Much faster than fire+wood.
+- **Lava + Oil**: oil ignites at ~20%/pass → fire.
+- **Lava cooling**: ~0.6%/pass passive heat decay. Spawns at heat 180-239, solidifies to stone at 0 (~23 sec).
+- **Stone heat**: fire/lava adds 2-3 heat/pass. Decays ~0.8%/pass. Conducts between adjacent stone (1 unit/pass).
+  - heat > 100: boils water → steam (1%/pass)
+  - heat > 150: ignites wood → fire (0.05%/pass)
   - heat > 200: melts sand → glass (0.5%/pass)
 
 ## WebGPU References

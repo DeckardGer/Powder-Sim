@@ -35,6 +35,7 @@ const WOOD: u32 = 6u;
 const GLASS: u32 = 7u;
 const SMOKE: u32 = 8u;
 const OIL: u32 = 9u;
+const LAVA: u32 = 10u;
 
 struct RenderParams {
   width: u32,
@@ -144,6 +145,30 @@ fn glassColor(variation: f32) -> vec3f {
   return clamp(color + vec3f(sparkle), vec3f(0.0), vec3f(1.0));
 }
 
+fn lavaColor(variation: f32, heat: f32) -> vec3f {
+  // Normalize heat: spawns at 180-240, cools to 0
+  let t = clamp(heat / 240.0, 0.0, 1.0);
+  let dark_crust = vec3f(0.25, 0.08, 0.03);
+  let dark_red = vec3f(0.6, 0.12, 0.02);
+  let orange = vec3f(1.0, 0.45, 0.0);
+  let yellow = vec3f(1.0, 0.8, 0.2);
+  let white_hot = vec3f(1.0, 0.95, 0.65);
+  var color: vec3f;
+  if (t < 0.15) {
+    color = mix(dark_crust, dark_red, t / 0.15);
+  } else if (t < 0.4) {
+    color = mix(dark_red, orange, (t - 0.15) / 0.25);
+  } else if (t < 0.7) {
+    color = mix(orange, yellow, (t - 0.4) / 0.3);
+  } else {
+    color = mix(yellow, white_hot, (t - 0.7) / 0.3);
+  }
+  // Subtle shimmer from variation (tight, like a liquid)
+  let shimmer = (variation - 0.5) * 0.06;
+  color += vec3f(shimmer, shimmer * 0.3, 0.0);
+  return clamp(color, vec3f(0.0), vec3f(1.0));
+}
+
 fn oilColor(variation: f32) -> vec3f {
   let base = vec3f(0.12, 0.08, 0.03);
   // Tight variation — smooth dark liquid with faint amber shift
@@ -207,6 +232,9 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
     }
     case OIL: {
       color = oilColor(colorVar);
+    }
+    case LAVA: {
+      color = lavaColor(colorVar, lifetime);
     }
     default: {
       // Empty: near-black with subtle grid pattern

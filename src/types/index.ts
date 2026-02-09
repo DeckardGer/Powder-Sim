@@ -9,6 +9,7 @@ export const ElementType = {
   Glass: 7,
   Smoke: 8,
   Oil: 9,
+  Lava: 10,
 } as const;
 
 export type ElementTypeValue = (typeof ElementType)[keyof typeof ElementType];

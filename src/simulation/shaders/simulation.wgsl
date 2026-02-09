@@ -18,6 +18,7 @@ const WOOD: u32 = 6u;
 const GLASS: u32 = 7u;
 const SMOKE: u32 = 8u;
 const OIL: u32 = 9u;
+const LAVA: u32 = 10u;
 
 // Density: fire/steam < empty so they rise via existing gravity logic.
 // The key insight from diving-beet/falling-turnip: gases lighter than empty
@@ -57,6 +58,7 @@ fn getDensity(element: u32) -> u32 {
     case EMPTY: { return EMPTY_DENSITY; }
     case OIL:   { return 4u; }
     case WATER: { return 5u; }
+    case LAVA:  { return 7u; }
     case WOOD:  { return 9u; }
     case SAND:  { return 10u; }
     case GLASS: { return 200u; }
@@ -128,6 +130,22 @@ fn ageCell(cell: u32, rng: u32) -> u32 {
       let new_lt = lifetime - 1u;
       if (new_lt == 0u) { return 0u; }
       return setLifetime(cell, new_lt);
+    }
+    return cell;
+  }
+
+  if (element == LAVA) {
+    let heat = getLifetime(cell);
+    if (heat == 0u) {
+      // Cooled completely: solidify into stone
+      let stone_cv = (rng >> 8u) & 0xFFu;
+      return makeCell(STONE, stone_cv, 0u);
+    }
+    // ~0.6% chance to cool per pass (24 passes * 0.6% ~ 14% per frame)
+    // At heat ~200, takes ~1400 frames (~23 sec) to fully solidify
+    let should_cool = (rng % 166u) == 0u;
+    if (should_cool) {
+      return setLifetime(cell, heat - 1u);
     }
     return cell;
   }
@@ -373,6 +391,107 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
 
+  // === ALCHEMY: lava interactions ===
+  // Lava is a hot liquid that cools over time. On contact:
+  // - Water: rapid cooling (lava loses heat, water → steam). Lava sinks through
+  //   water via gravity while cooling, solidifying naturally when heat reaches 0.
+  // - Sand: melts into glass (~4%/pass, faster than fire)
+  // - Wood: ignites into fire (~8%/pass, much faster than fire+wood)
+  // - Oil: ignites into fire (~20%/pass)
+  {
+    let lv_tl = getElement(tl);
+    let lv_tr = getElement(tr);
+    let lv_bl = getElement(bl);
+    let lv_br = getElement(br);
+
+    let has_lava = (lv_tl == LAVA || lv_tr == LAVA || lv_bl == LAVA || lv_br == LAVA);
+
+    if (has_lava) {
+      let lv_rng = hash(rng1 ^ 0x1a0a0001u);
+
+      // --- Lava + Water: rapid cooling + steam ---
+      // Water evaporates (~50%/pass), lava loses 3-5 heat per water cell.
+      // Gravity handles sinking (density 7 > 5), no instant solidification.
+      let has_water_lv = (lv_tl == WATER || lv_tr == WATER || lv_bl == WATER || lv_br == WATER);
+      if (has_water_lv) {
+        let water_ct = u32(lv_tl == WATER) + u32(lv_tr == WATER) + u32(lv_bl == WATER) + u32(lv_br == WATER);
+        let cool_amt = water_ct * (3u + (lv_rng & 1u)); // 3-4 heat per water cell
+
+        // Cool lava cells
+        if (lv_tl == LAVA) { let h = getLifetime(tl); if (h > cool_amt) { tl = setLifetime(tl, h - cool_amt); } else { tl = setLifetime(tl, 0u); } }
+        if (lv_tr == LAVA) { let h = getLifetime(tr); if (h > cool_amt) { tr = setLifetime(tr, h - cool_amt); } else { tr = setLifetime(tr, 0u); } }
+        if (lv_bl == LAVA) { let h = getLifetime(bl); if (h > cool_amt) { bl = setLifetime(bl, h - cool_amt); } else { bl = setLifetime(bl, 0u); } }
+        if (lv_br == LAVA) { let h = getLifetime(br); if (h > cool_amt) { br = setLifetime(br, h - cool_amt); } else { br = setLifetime(br, 0u); } }
+
+        // Evaporate water (~50%/pass)
+        let lv_rw = hash(lv_rng ^ 0xface0001u);
+        if (lv_tl == WATER && (lv_rw % 100u) < 50u) { tl = makeCell(STEAM, (lv_rw >> 8u) & 0xFFu, 80u + lv_rw % 60u); }
+        let lv_rw2 = hash(lv_rw ^ 0xface0002u);
+        if (lv_tr == WATER && (lv_rw2 % 100u) < 50u) { tr = makeCell(STEAM, (lv_rw2 >> 8u) & 0xFFu, 80u + lv_rw2 % 60u); }
+        let lv_rw3 = hash(lv_rw2 ^ 0xface0003u);
+        if (lv_bl == WATER && (lv_rw3 % 100u) < 50u) { bl = makeCell(STEAM, (lv_rw3 >> 8u) & 0xFFu, 80u + lv_rw3 % 60u); }
+        let lv_rw4 = hash(lv_rw3 ^ 0xface0004u);
+        if (lv_br == WATER && (lv_rw4 % 100u) < 50u) { br = makeCell(STEAM, (lv_rw4 >> 8u) & 0xFFu, 80u + lv_rw4 % 60u); }
+      }
+
+      // Re-read after water interaction (types may have changed)
+      let lv2_tl = getElement(tl);
+      let lv2_tr = getElement(tr);
+      let lv2_bl = getElement(bl);
+      let lv2_br = getElement(br);
+      let has_lava2 = (lv2_tl == LAVA || lv2_tr == LAVA || lv2_bl == LAVA || lv2_br == LAVA);
+
+      if (has_lava2) {
+        // --- Lava + Sand: melts sand into glass (~4%/pass) ---
+        let has_sand_lv = (lv2_tl == SAND || lv2_tr == SAND || lv2_bl == SAND || lv2_br == SAND);
+        if (has_sand_lv) {
+          let ls_rng = hash(lv_rng ^ 0xea550001u);
+          if (lv2_tl == SAND && (ls_rng % 100u) < 4u) { tl = makeCell(GLASS, (ls_rng >> 8u) & 0xFFu, 0u); }
+          let ls_rng2 = hash(ls_rng ^ 0xea550002u);
+          if (lv2_tr == SAND && (ls_rng2 % 100u) < 4u) { tr = makeCell(GLASS, (ls_rng2 >> 8u) & 0xFFu, 0u); }
+          let ls_rng3 = hash(ls_rng2 ^ 0xea550003u);
+          if (lv2_bl == SAND && (ls_rng3 % 100u) < 4u) { bl = makeCell(GLASS, (ls_rng3 >> 8u) & 0xFFu, 0u); }
+          let ls_rng4 = hash(ls_rng3 ^ 0xea550004u);
+          if (lv2_br == SAND && (ls_rng4 % 100u) < 4u) { br = makeCell(GLASS, (ls_rng4 >> 8u) & 0xFFu, 0u); }
+
+          // Lava loses heat from melting effort (3 per sand in block)
+          let sand_ct = u32(lv2_tl == SAND) + u32(lv2_tr == SAND) + u32(lv2_bl == SAND) + u32(lv2_br == SAND);
+          let lava_melt_cost = sand_ct * 3u;
+          if (lv2_tl == LAVA) { let lt = getLifetime(tl); if (lt > lava_melt_cost) { tl = setLifetime(tl, lt - lava_melt_cost); } else { tl = setLifetime(tl, 0u); } }
+          if (lv2_tr == LAVA) { let lt = getLifetime(tr); if (lt > lava_melt_cost) { tr = setLifetime(tr, lt - lava_melt_cost); } else { tr = setLifetime(tr, 0u); } }
+          if (lv2_bl == LAVA) { let lt = getLifetime(bl); if (lt > lava_melt_cost) { bl = setLifetime(bl, lt - lava_melt_cost); } else { bl = setLifetime(bl, 0u); } }
+          if (lv2_br == LAVA) { let lt = getLifetime(br); if (lt > lava_melt_cost) { br = setLifetime(br, lt - lava_melt_cost); } else { br = setLifetime(br, 0u); } }
+        }
+
+        // --- Lava + Wood: ignites wood (~8%/pass) ---
+        let has_wood_lv = (lv2_tl == WOOD || lv2_tr == WOOD || lv2_bl == WOOD || lv2_br == WOOD);
+        if (has_wood_lv) {
+          let lw_rng = hash(lv_rng ^ 0xd00d0001u);
+          if (lv2_tl == WOOD && (lw_rng % 100u) < 8u) { tl = makeCell(FIRE, (lw_rng >> 8u) & 0xFFu, 80u + lw_rng % 60u); }
+          let lw_rng2 = hash(lw_rng ^ 0xd00d0002u);
+          if (lv2_tr == WOOD && (lw_rng2 % 100u) < 8u) { tr = makeCell(FIRE, (lw_rng2 >> 8u) & 0xFFu, 80u + lw_rng2 % 60u); }
+          let lw_rng3 = hash(lw_rng2 ^ 0xd00d0003u);
+          if (lv2_bl == WOOD && (lw_rng3 % 100u) < 8u) { bl = makeCell(FIRE, (lw_rng3 >> 8u) & 0xFFu, 80u + lw_rng3 % 60u); }
+          let lw_rng4 = hash(lw_rng3 ^ 0xd00d0004u);
+          if (lv2_br == WOOD && (lw_rng4 % 100u) < 8u) { br = makeCell(FIRE, (lw_rng4 >> 8u) & 0xFFu, 80u + lw_rng4 % 60u); }
+        }
+
+        // --- Lava + Oil: ignites oil (~20%/pass) ---
+        let has_oil_lv = (lv2_tl == OIL || lv2_tr == OIL || lv2_bl == OIL || lv2_br == OIL);
+        if (has_oil_lv) {
+          let lo_rng = hash(lv_rng ^ 0xbead0001u);
+          if (lv2_tl == OIL && (lo_rng % 100u) < 20u) { tl = makeCell(FIRE, (lo_rng >> 8u) & 0xFFu, 80u + lo_rng % 60u); }
+          let lo_rng2 = hash(lo_rng ^ 0xbead0002u);
+          if (lv2_tr == OIL && (lo_rng2 % 100u) < 20u) { tr = makeCell(FIRE, (lo_rng2 >> 8u) & 0xFFu, 80u + lo_rng2 % 60u); }
+          let lo_rng3 = hash(lo_rng2 ^ 0xbead0003u);
+          if (lv2_bl == OIL && (lo_rng3 % 100u) < 20u) { bl = makeCell(FIRE, (lo_rng3 >> 8u) & 0xFFu, 80u + lo_rng3 % 60u); }
+          let lo_rng4 = hash(lo_rng3 ^ 0xbead0004u);
+          if (lv2_br == OIL && (lo_rng4 % 100u) < 20u) { br = makeCell(FIRE, (lo_rng4 >> 8u) & 0xFFu, 80u + lo_rng4 % 60u); }
+        }
+      }
+    }
+  }
+
   // === STONE HEAT: accumulation, decay, and transfer ===
   // Stone uses bits 16-23 as heat level (0-255). Fire heats adjacent stone,
   // hot stone conducts heat and affects neighbors (ignites wood, melts sand, boils water).
@@ -387,24 +506,27 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if (has_stone) {
       let heat_rng = hash(rng1 ^ 0xBEA70001u);
 
-      // --- Heat accumulation: fire heats adjacent stone by 2-4 per pass ---
+      // --- Heat accumulation: fire/lava heats adjacent stone ---
       let fire_in_block = u32(h_tl == FIRE) + u32(h_tr == FIRE)
                         + u32(h_bl == FIRE) + u32(h_br == FIRE);
-      let heat_gain = fire_in_block * (2u + (heat_rng & 1u)); // 2-3 per fire cell
+      let lava_in_block = u32(h_tl == LAVA) + u32(h_tr == LAVA)
+                        + u32(h_bl == LAVA) + u32(h_br == LAVA);
+      let heat_gain = fire_in_block * (2u + (heat_rng & 1u))   // fire: 2-3 per cell
+                    + lava_in_block * (2u + (heat_rng & 1u));   // lava: 2-3 per cell (persistent, not hotter)
 
-      if (h_tl == STONE && fire_in_block > 0u) {
+      if (h_tl == STONE && (fire_in_block > 0u || lava_in_block > 0u)) {
         let h = min(getLifetime(tl) + heat_gain, 255u);
         tl = setLifetime(tl, h);
       }
-      if (h_tr == STONE && fire_in_block > 0u) {
+      if (h_tr == STONE && (fire_in_block > 0u || lava_in_block > 0u)) {
         let h = min(getLifetime(tr) + heat_gain, 255u);
         tr = setLifetime(tr, h);
       }
-      if (h_bl == STONE && fire_in_block > 0u) {
+      if (h_bl == STONE && (fire_in_block > 0u || lava_in_block > 0u)) {
         let h = min(getLifetime(bl) + heat_gain, 255u);
         bl = setLifetime(bl, h);
       }
-      if (h_br == STONE && fire_in_block > 0u) {
+      if (h_br == STONE && (fire_in_block > 0u || lava_in_block > 0u)) {
         let h = min(getLifetime(br) + heat_gain, 255u);
         br = setLifetime(br, h);
       }
@@ -540,11 +662,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // Try to drop right column: TR falls to BR
     let can_drop_r = getDensity(etr) > getDensity(ebr) && !isImmovable(etr) && !isImmovable(ebr);
 
-    // Sand-liquid drag: gates ALL sand movement through water/oil (vertical + diagonal).
+    // Sand-liquid drag: gates ALL sand movement through water/oil/lava (vertical + diagonal).
     // Without this, sand bypasses vertical drag via the diagonal dispersion path.
     let sand_liquid_move = (rng1 % 100u) < 35u; // 35% chance to move through liquid
-    let sw_l = (etl == SAND && (ebl == WATER || ebl == OIL)) || ((etl == WATER || etl == OIL) && ebl == SAND);
-    let sw_r = (etr == SAND && (ebr == WATER || ebr == OIL)) || ((etr == WATER || etr == OIL) && ebr == SAND);
+    let sw_l = (etl == SAND && (ebl == WATER || ebl == OIL || ebl == LAVA)) || ((etl == WATER || etl == OIL || etl == LAVA) && ebl == SAND);
+    let sw_r = (etr == SAND && (ebr == WATER || ebr == OIL || ebr == LAVA)) || ((etr == WATER || etr == OIL || etr == LAVA) && ebr == SAND);
+
+    // Lava viscosity drag: lava moves at ~50% speed (sluggish liquid)
+    let lava_move = (rng1 % 100u) < 50u;
+    let lava_l = etl == LAVA || ebl == LAVA;
+    let lava_r = etr == LAVA || ebr == LAVA;
 
     // Gas rise drag: fire/steam/smoke rise slowly, not every pass.
     // Without this, gases teleport upward at full simulation speed.
@@ -561,8 +688,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let gas_ok_l = (!fire_l || fire_can_move) && (!steam_l || steam_can_move) && (!smoke_l || smoke_can_move);
     let gas_ok_r = (!fire_r || fire_can_move) && (!steam_r || steam_can_move) && (!smoke_r || smoke_can_move);
 
-    let drop_l = can_drop_l && (!sw_l || sand_liquid_move) && gas_ok_l;
-    let drop_r = can_drop_r && (!sw_r || sand_liquid_move) && gas_ok_r;
+    let drop_l = can_drop_l && (!sw_l || sand_liquid_move) && gas_ok_l && (!lava_l || lava_move);
+    let drop_r = can_drop_r && (!sw_r || sand_liquid_move) && gas_ok_r && (!lava_r || lava_move);
 
     if (drop_l && drop_r) {
       let tmp = tl; tl = bl; bl = tmp;
@@ -588,16 +715,18 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       // This fires when drag allowed movement and the vertical drop was
       // skipped, letting sand fan out sideways as it sinks through water.
       let sand_disp = ((rng1 >> 12u) & 1u) == 0u; // 50%
-      let tl_liquid_disp = etl == SAND && (ebr == WATER || ebr == OIL) && d_tl > d_br && sand_disp && sand_liquid_move;
-      let tr_liquid_disp = etr == SAND && (ebl == WATER || ebl == OIL) && d_tr > d_bl && sand_disp && sand_liquid_move;
+      let tl_liquid_disp = etl == SAND && (ebr == WATER || ebr == OIL || ebr == LAVA) && d_tl > d_br && sand_disp && sand_liquid_move;
+      let tr_liquid_disp = etr == SAND && (ebl == WATER || ebl == OIL || ebl == LAVA) && d_tr > d_bl && sand_disp && sand_liquid_move;
 
       // Gate standard diagonal slides into liquid by the same drag
-      let tl_sand_liquid = etl == SAND && (ebr == WATER || ebr == OIL);
-      let tr_sand_liquid = etr == SAND && (ebl == WATER || ebl == OIL);
+      let tl_sand_liquid = etl == SAND && (ebr == WATER || ebr == OIL || ebr == LAVA);
+      let tr_sand_liquid = etr == SAND && (ebl == WATER || ebl == OIL || ebl == LAVA);
       let tl_slide_raw = (tl_slide_base && (etl != WATER || (d_tr < d_tl && water_diag))) || tl_liquid_disp;
       let tr_slide_raw = (tr_slide_base && (etr != WATER || (d_tl < d_tr && water_diag))) || tr_liquid_disp;
-      let tl_slide = tl_slide_raw && (!tl_sand_liquid || sand_liquid_move);
-      let tr_slide = tr_slide_raw && (!tr_sand_liquid || sand_liquid_move);
+      let tl_lava_slide = etl == LAVA;
+      let tr_lava_slide = etr == LAVA;
+      let tl_slide = tl_slide_raw && (!tl_sand_liquid || sand_liquid_move) && (!tl_lava_slide || lava_move);
+      let tr_slide = tr_slide_raw && (!tr_sand_liquid || sand_liquid_move) && (!tr_lava_slide || lava_move);
 
       if (tl_slide && tr_slide) {
         if (rand_bit == 0u) {
@@ -686,6 +815,32 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       }
     }
 
+    // Lava lateral spread: viscous liquid, gated at ~30% for sluggish flow.
+    {
+      let la_tl = getElement(tl);
+      let la_tr = getElement(tr);
+      let la_bl = getElement(bl);
+      let la_br = getElement(br);
+      let lava_spread_rng = hash(rng0 ^ 0x1a0a0001u);
+      let lava_spread = (lava_spread_rng % 100u) < 30u; // ~30%
+
+      if (lava_spread) {
+        // Bottom row: one lava + one empty → swap if top row fully occupied
+        if ((la_bl == LAVA && la_br == EMPTY) || (la_br == LAVA && la_bl == EMPTY)) {
+          if (la_tl != EMPTY && la_tr != EMPTY) {
+            let tmp = bl; bl = br; br = tmp;
+          }
+        }
+
+        // Top row: one lava + one empty → swap if bottom row fully occupied
+        if ((la_tl == LAVA && la_tr == EMPTY) || (la_tr == LAVA && la_tl == EMPTY)) {
+          if (la_bl != EMPTY && la_br != EMPTY) {
+            let tmp = tl; tl = tr; tr = tmp;
+          }
+        }
+      }
+    }
+
     // Steam lateral spread: looser than water — steam disperses freely.
     // Against a surface (other row occupied): always spread.
     // Free-floating: ~12% chance to spread anyway, breaking hard walls.
@@ -747,10 +902,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       let smooth_rng = hash(rng0 ^ 0x12345678u);
       let should_smooth = (smooth_rng & 31u) == 0u; // ~3% per pass
       if (should_smooth) {
-        let s_tl_liq = s_tl == WATER || s_tl == OIL;
-        let s_tr_liq = s_tr == WATER || s_tr == OIL;
-        let s_bl_liq = s_bl == WATER || s_bl == OIL;
-        let s_br_liq = s_br == WATER || s_br == OIL;
+        let s_tl_liq = s_tl == WATER || s_tl == OIL || s_tl == LAVA;
+        let s_tr_liq = s_tr == WATER || s_tr == OIL || s_tr == LAVA;
+        let s_bl_liq = s_bl == WATER || s_bl == OIL || s_bl == LAVA;
+        let s_br_liq = s_br == WATER || s_br == OIL || s_br == LAVA;
         if (s_bl == SAND && s_br_liq && s_tl_liq) {
           let tmp = bl; bl = br; br = tmp;
         } else if (s_br == SAND && s_bl_liq && s_tr_liq) {
