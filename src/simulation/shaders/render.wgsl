@@ -37,6 +37,7 @@ const SMOKE: u32 = 8u;
 const OIL: u32 = 9u;
 const LAVA: u32 = 10u;
 const ACID: u32 = 11u;
+const GUNPOWDER: u32 = 12u;
 
 struct RenderParams {
   width: u32,
@@ -211,6 +212,18 @@ fn steamColor(variation: f32, lifetime: f32) -> vec3f {
   return clamp(base + vec3f(vary, vary, vary * 1.1), vec3f(0.0), vec3f(1.0));
 }
 
+fn gunpowderColor(variation: f32) -> vec3f {
+  // Dark charcoal gray with a warm brown tint, grainy texture
+  let base = vec3f(0.22, 0.20, 0.18);
+  let dark = vec3f(0.14, 0.12, 0.10);
+  let light = vec3f(0.30, 0.27, 0.23);
+  let t = variation;
+  if (t < 0.5) {
+    return mix(dark, base, t * 2.0);
+  }
+  return mix(base, light, (t - 0.5) * 2.0);
+}
+
 @fragment
 fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let px = u32(uv.x * f32(params.width));
@@ -261,6 +274,9 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
     }
     case ACID: {
       color = acidColor(colorVar, lifetime);
+    }
+    case GUNPOWDER: {
+      color = gunpowderColor(colorVar);
     }
     default: {
       // Empty: near-black with subtle grid pattern

@@ -50,14 +50,14 @@ writeBuffer (uniforms x24) -> commandEncoder -> conditional write pass -> 24 com
 
 ### Cell Encoding (u32)
 
-- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7, Smoke=8, Oil=9, Lava=10, Acid=11)
+- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7, Smoke=8, Oil=9, Lava=10, Acid=11, Gunpowder=12)
 - Bits 8-15: per-particle color variation
 - Bits 16-23: lifetime (fire/steam/smoke) or heat level (stone/lava)
 - Bits 24-31: reserved
 
 ### Elements & Density
 
-Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Sand=10, Glass=200, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, and Stone are immovable solids. Lava is a viscous movable liquid (50% gravity drag, 30% lateral spread). Acid is a corrosive liquid (no viscosity drag).
+Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Sand=10, Gunpowder=10, Glass=200, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, and Stone are immovable solids. Lava is a viscous movable liquid (50% gravity drag, 30% lateral spread). Acid is a corrosive liquid (no viscosity drag).
 
 ## Critical Bugs (don't regress)
 
@@ -107,8 +107,14 @@ Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Sand=
 - **Lava cooling**: ~0.6%/pass passive heat decay. Spawns at heat 180-239, solidifies to stone at 0 (~23 sec).
 - **Stone heat**: fire/lava adds 2-3 heat/pass. Decays ~0.8%/pass. Conducts between adjacent stone (1 unit/pass).
   - heat > 100: boils water → steam (1%/pass)
-  - heat > 150: ignites wood → fire (0.05%/pass)
+  - heat > 150: ignites wood → fire (0.05%/pass), ignites gunpowder → fire (1%/pass)
   - heat > 200: melts sand → glass (0.5%/pass)
+- **Gunpowder**: granular solid, density 10 (same as sand), movable. Dark charcoal-gray color.
+  No lifetime/aging. Explosive on contact with fire/lava/hot stone.
+- **Fire + Gunpowder**: gunpowder → fire (lt 120-179) at ~50%/pass. Near-instant chain reaction.
+  Empty cells → smoke at ~10%/pass. Fire unaffected.
+- **Lava + Gunpowder**: gunpowder → fire (lt 120-179) at ~30%/pass.
+- **Acid + Gunpowder**: dissolves at ~5%/pass → smoke. Acid loses 3 potency/gunpowder.
 
 ## WebGPU References
 
