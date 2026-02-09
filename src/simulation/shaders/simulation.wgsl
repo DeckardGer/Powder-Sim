@@ -192,7 +192,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     br = ageCell(br, rng_age_br);
   }
 
-  // === ALCHEMY: fire + water → empty + steam ===
+  // === ALCHEMY: fire + water → violent steam explosion ===
+  // Fire SURVIVES the reaction (loses lifetime) so it burns through water
+  // over multiple passes. Water is either evaporated (→empty) or becomes steam.
+  // Empty cells in the blast become short-lived burst steam.
   {
     let a_tl = getElement(tl);
     let a_tr = getElement(tr);
@@ -204,19 +207,33 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     if (has_fire && has_water) {
       let rng_a = hash(rng1 ^ 0xFEEDFACEu);
-      let steam_cell = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 150u + rng_a % 100u);
+      let rng_b = hash(rng_a ^ 0xABCD1234u);
+      let rng_c = hash(rng_b ^ 0x5678EF01u);
+      let rng_d = hash(rng_c ^ 0x9ABC2345u);
 
-      // Convert first fire → empty
-      if (a_tl == FIRE) { tl = 0u; }
-      else if (a_tr == FIRE) { tr = 0u; }
-      else if (a_bl == FIRE) { bl = 0u; }
-      else { br = 0u; }
+      // Count water to scale lifetime cost
+      let water_count = u32(a_tl == WATER) + u32(a_tr == WATER)
+                      + u32(a_bl == WATER) + u32(a_br == WATER);
+      let lt_cost = 8u + water_count * 4u; // 12-24 lifetime lost per reaction
 
-      // Convert first water → steam
-      if (a_tl == WATER) { tl = steam_cell; }
-      else if (a_tr == WATER) { tr = steam_cell; }
-      else if (a_bl == WATER) { bl = steam_cell; }
-      else { br = steam_cell; }
+      // Fire: survives but loses lifetime. Dies if depleted.
+      // Water: 60% evaporated (→empty), 40% → steam.
+      // Empty: → short-lived burst steam (splash).
+      if (a_tl == FIRE) { let lt = getLifetime(tl); if (lt > lt_cost) { tl = setLifetime(tl, lt - lt_cost); } else { tl = 0u; } }
+      else if (a_tl == WATER) { if ((rng_a % 100u) < 60u) { tl = 0u; } else { tl = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 120u + rng_a % 80u); } }
+      else if (a_tl == EMPTY) { tl = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 15u + rng_a % 20u); }
+
+      if (a_tr == FIRE) { let lt = getLifetime(tr); if (lt > lt_cost) { tr = setLifetime(tr, lt - lt_cost); } else { tr = 0u; } }
+      else if (a_tr == WATER) { if ((rng_b % 100u) < 60u) { tr = 0u; } else { tr = makeCell(STEAM, (rng_b >> 8u) & 0xFFu, 120u + rng_b % 80u); } }
+      else if (a_tr == EMPTY) { tr = makeCell(STEAM, (rng_b >> 8u) & 0xFFu, 15u + rng_b % 20u); }
+
+      if (a_bl == FIRE) { let lt = getLifetime(bl); if (lt > lt_cost) { bl = setLifetime(bl, lt - lt_cost); } else { bl = 0u; } }
+      else if (a_bl == WATER) { if ((rng_c % 100u) < 60u) { bl = 0u; } else { bl = makeCell(STEAM, (rng_c >> 8u) & 0xFFu, 120u + rng_c % 80u); } }
+      else if (a_bl == EMPTY) { bl = makeCell(STEAM, (rng_c >> 8u) & 0xFFu, 15u + rng_c % 20u); }
+
+      if (a_br == FIRE) { let lt = getLifetime(br); if (lt > lt_cost) { br = setLifetime(br, lt - lt_cost); } else { br = 0u; } }
+      else if (a_br == WATER) { if ((rng_d % 100u) < 60u) { br = 0u; } else { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 120u + rng_d % 80u); } }
+      else if (a_br == EMPTY) { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 15u + rng_d % 20u); }
     }
   }
 
