@@ -10,12 +10,19 @@ interface SimulationCanvasProps {
   gpuContext: GPUContext;
   onStatsUpdate?: (stats: SimulationStats) => void;
   onSimulationReady?: (simulation: PowderSimulation) => void;
+  pointerHandlers?: {
+    onPointerDown: (e: React.PointerEvent<HTMLCanvasElement>) => void;
+    onPointerMove: (e: React.PointerEvent<HTMLCanvasElement>) => void;
+    onPointerUp: (e: React.PointerEvent<HTMLCanvasElement>) => void;
+    onPointerLeave: (e: React.PointerEvent<HTMLCanvasElement>) => void;
+  };
 }
 
 export function SimulationCanvas({
   gpuContext,
   onStatsUpdate,
   onSimulationReady,
+  pointerHandlers,
 }: SimulationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simulationRef = useRef<PowderSimulation | null>(null);
@@ -44,24 +51,23 @@ export function SimulationCanvas({
           fpsCounterRef.current.lastTime = now;
           onStatsUpdate?.({
             fps,
-            particleCount: 0, // Will be computed later
+            particleCount: 0,
             frameCount: simulation.frame,
           });
         }
 
         // Single command encoder for compute + render
         const encoder = device.createCommandEncoder();
-
-        // Run simulation step (4 Margolus passes)
         simulation.step(encoder);
 
-        // Render
         const textureView = canvasContext.getCurrentTexture().createView();
-        renderer.render(encoder, textureView, simulation.getCurrentBufferIndex());
+        renderer.render(
+          encoder,
+          textureView,
+          simulation.getCurrentBufferIndex()
+        );
 
-        // Submit all work
         device.queue.submit([encoder.finish()]);
-
         animFrameRef.current = requestAnimationFrame(loop);
       };
 
@@ -89,7 +95,6 @@ export function SimulationCanvas({
     rendererRef.current = renderer;
 
     onSimulationReady?.(simulation);
-
     gameLoop(canvasContext);
 
     return () => {
@@ -107,7 +112,8 @@ export function SimulationCanvas({
     <canvas
       ref={canvasRef}
       className="block h-full w-full"
-      style={{ imageRendering: "pixelated" }}
+      style={{ imageRendering: "pixelated", touchAction: "none" }}
+      {...pointerHandlers}
     />
   );
 }
