@@ -50,13 +50,14 @@ writeBuffer (uniforms x24) -> commandEncoder -> conditional write pass -> 24 com
 
 ### Cell Encoding (u32)
 
-- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5)
+- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7)
 - Bits 8-15: per-particle color variation
-- Bits 16-31: reserved metadata
+- Bits 16-23: lifetime (fire/steam) or heat level (stone)
+- Bits 24-31: reserved
 
 ### Elements & Density
 
-Empty=0, Water=5, Sand=10, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks.
+Fire=0, Steam=1, Empty=2, Water=5, Wood=9, Sand=10, Glass=200, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, and Stone are immovable solids.
 
 ## Critical Bugs (don't regress)
 
@@ -84,6 +85,16 @@ Empty=0, Water=5, Sand=10, Stone=255. Denser elements sink via pairwise density 
 - **Water lateral spread**: diving-beet/falling-turnip rules. Row swaps water+empty if other row is fully occupied.
 - **Underwater sand smoothing**: submerged sand (water above) slides laterally at ~3%/pass. Flattens peaks into curves.
 - **Water erosion**: flowing water lifts adjacent sand upward at ~0.2%/pass.
+
+### Alchemy (runs between aging and gravity)
+
+- **Fire + Water**: fire survives (loses 12-24 lifetime), water 60% evaporates / 40% → steam, empty → burst steam
+- **Fire + Wood**: wood ignites at ~15%/pass → becomes fire (lifetime 80-139). Fire unaffected. Chain reaction.
+- **Fire + Sand → Glass**: sand melts at ~2%/pass. Fire loses 7 lifetime per sand in block.
+- **Stone heat**: fire adds 2-3 heat/pass. Decays ~0.8%/pass. Conducts between adjacent stone (1 unit/pass).
+  - heat > 100: boils water → steam (3%/pass)
+  - heat > 150: ignites wood → fire (5%/pass)
+  - heat > 200: melts sand → glass (0.5%/pass)
 
 ## WebGPU References
 

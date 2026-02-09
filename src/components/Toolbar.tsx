@@ -14,8 +14,10 @@ const ELEMENTS = [
   { type: ElementType.Sand, label: "SAND", color: "bg-yellow-600" },
   { type: ElementType.Water, label: "WATER", color: "bg-blue-500" },
   { type: ElementType.Stone, label: "STONE", color: "bg-zinc-500" },
+  { type: ElementType.Wood, label: "WOOD", color: "bg-amber-800" },
   { type: ElementType.Fire, label: "FIRE", color: "bg-orange-500" },
   { type: ElementType.Steam, label: "STEAM", color: "bg-slate-400" },
+  { type: ElementType.Glass, label: "GLASS", color: "bg-cyan-200" },
   { type: ElementType.Empty, label: "ERASE", color: "bg-zinc-900" },
 ] as const;
 

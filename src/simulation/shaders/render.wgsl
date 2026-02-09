@@ -31,6 +31,9 @@ const WATER: u32 = 2u;
 const STONE: u32 = 3u;
 const FIRE: u32 = 4u;
 const STEAM: u32 = 5u;
+const WOOD: u32 = 6u;
+const GLASS: u32 = 7u;
+const SMOKE: u32 = 8u;
 
 struct RenderParams {
   width: u32,
@@ -58,10 +61,31 @@ fn waterColor(variation: f32) -> vec3f {
   return mix(alt, base, variation);
 }
 
-fn stoneColor(variation: f32) -> vec3f {
+fn stoneColor(variation: f32, heat: f32) -> vec3f {
   let base = vec3f(0.45, 0.45, 0.48);
   let alt = vec3f(0.38, 0.38, 0.42);
-  return mix(alt, base, variation);
+  let cold = mix(alt, base, variation);
+
+  // Heat gradient: cold gray → warm → orange → red-hot → white-hot
+  let t = clamp(heat / 255.0, 0.0, 1.0);
+  if (t < 0.12) {
+    // Below threshold: normal stone
+    return cold;
+  }
+  let ht = clamp((t - 0.12) / 0.88, 0.0, 1.0); // remap to 0-1
+  let warm = vec3f(0.55, 0.35, 0.25);
+  let orange = vec3f(0.9, 0.45, 0.1);
+  let red_hot = vec3f(1.0, 0.25, 0.05);
+  let white_hot = vec3f(1.0, 0.85, 0.6);
+  var glow: vec3f;
+  if (ht < 0.3) {
+    glow = mix(warm, orange, ht / 0.3);
+  } else if (ht < 0.65) {
+    glow = mix(orange, red_hot, (ht - 0.3) / 0.35);
+  } else {
+    glow = mix(red_hot, white_hot, (ht - 0.65) / 0.35);
+  }
+  return mix(cold, glow, clamp(ht * 1.2, 0.0, 1.0));
 }
 
 fn fireColor(variation: f32, lifetime: f32) -> vec3f {
@@ -84,6 +108,38 @@ fn fireColor(variation: f32, lifetime: f32) -> vec3f {
   let flicker = (variation - 0.5) * 0.25;
   color += vec3f(flicker, flicker * 0.4, 0.0);
   return clamp(color, vec3f(0.0), vec3f(1.0));
+}
+
+fn woodColor(variation: f32) -> vec3f {
+  let base = vec3f(0.4, 0.26, 0.13);
+  let dark = vec3f(0.28, 0.17, 0.08);
+  let light = vec3f(0.52, 0.35, 0.18);
+  let t = variation;
+  if (t < 0.5) {
+    return mix(dark, base, t * 2.0);
+  }
+  return mix(base, light, (t - 0.5) * 2.0);
+}
+
+fn smokeColor(variation: f32, lifetime: f32) -> vec3f {
+  // Normalize: spawns at ~60-100, so /80 gives ~0.75-1.25 (clamped)
+  let t = clamp(lifetime / 80.0, 0.0, 1.0);
+  // Fresh smoke is dark gray, aging smoke fades to near-background
+  let fresh = vec3f(0.35, 0.33, 0.32);
+  let faded = vec3f(0.08, 0.08, 0.09);
+  let base = mix(faded, fresh, t);
+  // Per-particle variation for wispy look
+  let vary = (variation - 0.5) * 0.1;
+  return clamp(base + vec3f(vary, vary, vary), vec3f(0.0), vec3f(1.0));
+}
+
+fn glassColor(variation: f32) -> vec3f {
+  let base = vec3f(0.7, 0.85, 0.88);
+  let alt = vec3f(0.6, 0.78, 0.82);
+  let color = mix(alt, base, variation);
+  // Subtle sparkle on some particles
+  let sparkle = step(0.92, variation) * 0.15;
+  return clamp(color + vec3f(sparkle), vec3f(0.0), vec3f(1.0));
 }
 
 fn steamColor(variation: f32, lifetime: f32) -> vec3f {
@@ -123,13 +179,22 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
       color = waterColor(colorVar);
     }
     case STONE: {
-      color = stoneColor(colorVar);
+      color = stoneColor(colorVar, lifetime);
     }
     case FIRE: {
       color = fireColor(colorVar, lifetime);
     }
     case STEAM: {
       color = steamColor(colorVar, lifetime);
+    }
+    case WOOD: {
+      color = woodColor(colorVar);
+    }
+    case GLASS: {
+      color = glassColor(colorVar);
+    }
+    case SMOKE: {
+      color = smokeColor(colorVar, lifetime);
     }
     default: {
       // Empty: near-black with subtle grid pattern

@@ -5,6 +5,9 @@ export const ElementType = {
   Stone: 3,
   Fire: 4,
   Steam: 5,
+  Wood: 6,
+  Glass: 7,
+  Smoke: 8,
 } as const;
 
 export type ElementTypeValue = (typeof ElementType)[keyof typeof ElementType];

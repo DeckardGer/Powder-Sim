@@ -14,6 +14,9 @@ const WATER: u32 = 2u;
 const STONE: u32 = 3u;
 const FIRE: u32 = 4u;
 const STEAM: u32 = 5u;
+const WOOD: u32 = 6u;
+const GLASS: u32 = 7u;
+const SMOKE: u32 = 8u;
 
 // Density: fire/steam < empty so they rise via existing gravity logic.
 // The key insight from diving-beet/falling-turnip: gases lighter than empty
@@ -44,10 +47,13 @@ fn getLifetime(cell: u32) -> u32 {
 fn getDensity(element: u32) -> u32 {
   switch(element) {
     case FIRE:  { return 0u; }
+    case SMOKE: { return 1u; }
     case STEAM: { return 1u; }
     case EMPTY: { return EMPTY_DENSITY; }
     case WATER: { return 5u; }
+    case WOOD:  { return 9u; }
     case SAND:  { return 10u; }
+    case GLASS: { return 200u; }
     case STONE: { return 255u; }
     default:    { return EMPTY_DENSITY; }
   }
@@ -63,7 +69,7 @@ fn setLifetime(cell: u32, lifetime: u32) -> u32 {
   return (cell & 0xFF00FFFFu) | ((lifetime & LIFETIME_MASK) << LIFETIME_SHIFT);
 }
 
-// Age a single cell: decrement fire/steam lifetime, convert on expiry
+// Age a single cell: decrement fire/steam/smoke lifetime, convert on expiry
 fn ageCell(cell: u32, rng: u32) -> u32 {
   let element = getElement(cell);
 
@@ -75,10 +81,10 @@ fn ageCell(cell: u32, rng: u32) -> u32 {
     if (should_age) {
       let new_lt = lifetime - 1u;
       if (new_lt == 0u) {
-        // Fire dies: 50% chance → steam (smoke effect), 50% → empty
+        // Fire dies: 50% chance → smoke, 50% → empty
         if (((rng >> 5u) & 1u) == 1u) {
-          let steam_cv = (rng >> 8u) & 0xFFu;
-          return makeCell(STEAM, steam_cv, 80u + ((rng >> 16u) % 60u));
+          let smoke_cv = (rng >> 8u) & 0xFFu;
+          return makeCell(SMOKE, smoke_cv, 60u + ((rng >> 16u) % 40u));
         }
         return 0u;
       }
@@ -102,6 +108,19 @@ fn ageCell(cell: u32, rng: u32) -> u32 {
         let water_cv = (rng >> 8u) & 0xFFu;
         return makeCell(WATER, water_cv, 0u);
       }
+      return setLifetime(cell, new_lt);
+    }
+    return cell;
+  }
+
+  if (element == SMOKE) {
+    let lifetime = getLifetime(cell);
+    if (lifetime == 0u) { return 0u; }
+    // ~2% chance to age per pass (slightly faster than steam)
+    let should_age = (rng & 63u) == 0u;
+    if (should_age) {
+      let new_lt = lifetime - 1u;
+      if (new_lt == 0u) { return 0u; }
       return setLifetime(cell, new_lt);
     }
     return cell;
@@ -192,10 +211,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     br = ageCell(br, rng_age_br);
   }
 
-  // === ALCHEMY: fire + water → violent steam explosion ===
-  // Fire SURVIVES the reaction (loses lifetime) so it burns through water
-  // over multiple passes. Water is either evaporated (→empty) or becomes steam.
-  // Empty cells in the blast become short-lived burst steam.
+  // === ALCHEMY: fire + water → water extinguishes fire ===
+  // Fire is killed on contact with water → becomes steam.
+  // Water is consumed: 70% survives, 30% → steam.
   {
     let a_tl = getElement(tl);
     let a_tr = getElement(tr);
@@ -211,33 +229,259 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       let rng_c = hash(rng_b ^ 0x5678EF01u);
       let rng_d = hash(rng_c ^ 0x9ABC2345u);
 
-      // Count water to scale lifetime cost
-      let water_count = u32(a_tl == WATER) + u32(a_tr == WATER)
-                      + u32(a_bl == WATER) + u32(a_br == WATER);
-      let lt_cost = 8u + water_count * 4u; // 12-24 lifetime lost per reaction
+      // Fire: extinguished → becomes steam (hiss effect).
+      // Water: mostly survives, 30% → steam from heat.
+      if (a_tl == FIRE) { tl = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 40u + rng_a % 40u); }
+      else if (a_tl == WATER) { if ((rng_a % 100u) < 30u) { tl = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 60u + rng_a % 60u); } }
 
-      // Fire: survives but loses lifetime. Dies if depleted.
-      // Water: 60% evaporated (→empty), 40% → steam.
-      // Empty: → short-lived burst steam (splash).
-      if (a_tl == FIRE) { let lt = getLifetime(tl); if (lt > lt_cost) { tl = setLifetime(tl, lt - lt_cost); } else { tl = 0u; } }
-      else if (a_tl == WATER) { if ((rng_a % 100u) < 60u) { tl = 0u; } else { tl = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 120u + rng_a % 80u); } }
-      else if (a_tl == EMPTY) { tl = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 15u + rng_a % 20u); }
+      if (a_tr == FIRE) { tr = makeCell(STEAM, (rng_b >> 8u) & 0xFFu, 40u + rng_b % 40u); }
+      else if (a_tr == WATER) { if ((rng_b % 100u) < 30u) { tr = makeCell(STEAM, (rng_b >> 8u) & 0xFFu, 60u + rng_b % 60u); } }
 
-      if (a_tr == FIRE) { let lt = getLifetime(tr); if (lt > lt_cost) { tr = setLifetime(tr, lt - lt_cost); } else { tr = 0u; } }
-      else if (a_tr == WATER) { if ((rng_b % 100u) < 60u) { tr = 0u; } else { tr = makeCell(STEAM, (rng_b >> 8u) & 0xFFu, 120u + rng_b % 80u); } }
-      else if (a_tr == EMPTY) { tr = makeCell(STEAM, (rng_b >> 8u) & 0xFFu, 15u + rng_b % 20u); }
+      if (a_bl == FIRE) { bl = makeCell(STEAM, (rng_c >> 8u) & 0xFFu, 40u + rng_c % 40u); }
+      else if (a_bl == WATER) { if ((rng_c % 100u) < 30u) { bl = makeCell(STEAM, (rng_c >> 8u) & 0xFFu, 60u + rng_c % 60u); } }
 
-      if (a_bl == FIRE) { let lt = getLifetime(bl); if (lt > lt_cost) { bl = setLifetime(bl, lt - lt_cost); } else { bl = 0u; } }
-      else if (a_bl == WATER) { if ((rng_c % 100u) < 60u) { bl = 0u; } else { bl = makeCell(STEAM, (rng_c >> 8u) & 0xFFu, 120u + rng_c % 80u); } }
-      else if (a_bl == EMPTY) { bl = makeCell(STEAM, (rng_c >> 8u) & 0xFFu, 15u + rng_c % 20u); }
-
-      if (a_br == FIRE) { let lt = getLifetime(br); if (lt > lt_cost) { br = setLifetime(br, lt - lt_cost); } else { br = 0u; } }
-      else if (a_br == WATER) { if ((rng_d % 100u) < 60u) { br = 0u; } else { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 120u + rng_d % 80u); } }
-      else if (a_br == EMPTY) { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 15u + rng_d % 20u); }
+      if (a_br == FIRE) { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 40u + rng_d % 40u); }
+      else if (a_br == WATER) { if ((rng_d % 100u) < 30u) { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 60u + rng_d % 60u); } }
     }
   }
 
-  // Re-read elements after aging + alchemy (types may have changed)
+  // === ALCHEMY: fire + wood → wood ignites + smoke ===
+  // Wood in the same 2x2 block as fire catches fire (~0.2% per pass).
+  // Fire is unaffected. Empty cells in the block emit smoke (combustion byproduct).
+  {
+    let w_tl = getElement(tl);
+    let w_tr = getElement(tr);
+    let w_bl = getElement(bl);
+    let w_br = getElement(br);
+
+    let has_fire_w = (w_tl == FIRE || w_tr == FIRE || w_bl == FIRE || w_br == FIRE);
+    let has_wood = (w_tl == WOOD || w_tr == WOOD || w_bl == WOOD || w_br == WOOD);
+
+    if (has_fire_w && has_wood) {
+      let rng_w = hash(rng1 ^ 0xD00DF1AEu);
+      if (w_tl == WOOD && (rng_w & 511u) == 0u) {
+        tl = makeCell(FIRE, (rng_w >> 8u) & 0xFFu, 100u + rng_w % 60u);
+      } else if (w_tl == EMPTY && (rng_w & 63u) == 0u) {
+        tl = makeCell(SMOKE, (rng_w >> 8u) & 0xFFu, 40u + rng_w % 30u);
+      }
+      let rng_w2 = hash(rng_w ^ 0xB0A4D00Du);
+      if (w_tr == WOOD && (rng_w2 & 511u) == 0u) {
+        tr = makeCell(FIRE, (rng_w2 >> 8u) & 0xFFu, 100u + rng_w2 % 60u);
+      } else if (w_tr == EMPTY && (rng_w2 & 63u) == 0u) {
+        tr = makeCell(SMOKE, (rng_w2 >> 8u) & 0xFFu, 40u + rng_w2 % 30u);
+      }
+      let rng_w3 = hash(rng_w2 ^ 0x1A01B3AAu);
+      if (w_bl == WOOD && (rng_w3 & 511u) == 0u) {
+        bl = makeCell(FIRE, (rng_w3 >> 8u) & 0xFFu, 100u + rng_w3 % 60u);
+      } else if (w_bl == EMPTY && (rng_w3 & 63u) == 0u) {
+        bl = makeCell(SMOKE, (rng_w3 >> 8u) & 0xFFu, 40u + rng_w3 % 30u);
+      }
+      let rng_w4 = hash(rng_w3 ^ 0xF1A4BE44u);
+      if (w_br == WOOD && (rng_w4 & 511u) == 0u) {
+        br = makeCell(FIRE, (rng_w4 >> 8u) & 0xFFu, 100u + rng_w4 % 60u);
+      } else if (w_br == EMPTY && (rng_w4 & 63u) == 0u) {
+        br = makeCell(SMOKE, (rng_w4 >> 8u) & 0xFFu, 40u + rng_w4 % 30u);
+      }
+    }
+  }
+
+  // === ALCHEMY: fire + sand → glass (melting) ===
+  // Sustained fire melts sand into glass (~2% per pass). Fire loses lifetime.
+  {
+    let g_tl = getElement(tl);
+    let g_tr = getElement(tr);
+    let g_bl = getElement(bl);
+    let g_br = getElement(br);
+
+    let has_fire_g = (g_tl == FIRE || g_tr == FIRE || g_bl == FIRE || g_br == FIRE);
+    let has_sand = (g_tl == SAND || g_tr == SAND || g_bl == SAND || g_br == SAND);
+
+    if (has_fire_g && has_sand) {
+      let rng_g = hash(rng1 ^ 0x6EA55000u);
+
+      // Melt sand cells (~2% each)
+      if (g_tl == SAND && (rng_g % 100u) < 2u) {
+        tl = makeCell(GLASS, (rng_g >> 8u) & 0xFFu, 0u);
+      }
+      let rng_g2 = hash(rng_g ^ 0xAE1F0001u);
+      if (g_tr == SAND && (rng_g2 % 100u) < 2u) {
+        tr = makeCell(GLASS, (rng_g2 >> 8u) & 0xFFu, 0u);
+      }
+      let rng_g3 = hash(rng_g2 ^ 0xAE1F0002u);
+      if (g_bl == SAND && (rng_g3 % 100u) < 2u) {
+        bl = makeCell(GLASS, (rng_g3 >> 8u) & 0xFFu, 0u);
+      }
+      let rng_g4 = hash(rng_g3 ^ 0xAE1F0003u);
+      if (g_br == SAND && (rng_g4 % 100u) < 2u) {
+        br = makeCell(GLASS, (rng_g4 >> 8u) & 0xFFu, 0u);
+      }
+
+      // Fire loses lifetime from melting effort (7 per sand in block)
+      let sand_count = u32(g_tl == SAND) + u32(g_tr == SAND)
+                     + u32(g_bl == SAND) + u32(g_br == SAND);
+      let melt_cost = sand_count * 7u;
+      if (g_tl == FIRE) { let lt = getLifetime(tl); if (lt > melt_cost) { tl = setLifetime(tl, lt - melt_cost); } else { tl = 0u; } }
+      if (g_tr == FIRE) { let lt = getLifetime(tr); if (lt > melt_cost) { tr = setLifetime(tr, lt - melt_cost); } else { tr = 0u; } }
+      if (g_bl == FIRE) { let lt = getLifetime(bl); if (lt > melt_cost) { bl = setLifetime(bl, lt - melt_cost); } else { bl = 0u; } }
+      if (g_br == FIRE) { let lt = getLifetime(br); if (lt > melt_cost) { br = setLifetime(br, lt - melt_cost); } else { br = 0u; } }
+    }
+  }
+
+  // === STONE HEAT: accumulation, decay, and transfer ===
+  // Stone uses bits 16-23 as heat level (0-255). Fire heats adjacent stone,
+  // hot stone conducts heat and affects neighbors (ignites wood, melts sand, boils water).
+  {
+    let h_tl = getElement(tl);
+    let h_tr = getElement(tr);
+    let h_bl = getElement(bl);
+    let h_br = getElement(br);
+
+    let has_stone = (h_tl == STONE || h_tr == STONE || h_bl == STONE || h_br == STONE);
+
+    if (has_stone) {
+      let heat_rng = hash(rng1 ^ 0xBEA70001u);
+
+      // --- Heat accumulation: fire heats adjacent stone by 2-4 per pass ---
+      let fire_in_block = u32(h_tl == FIRE) + u32(h_tr == FIRE)
+                        + u32(h_bl == FIRE) + u32(h_br == FIRE);
+      let heat_gain = fire_in_block * (2u + (heat_rng & 1u)); // 2-3 per fire cell
+
+      if (h_tl == STONE && fire_in_block > 0u) {
+        let h = min(getLifetime(tl) + heat_gain, 255u);
+        tl = setLifetime(tl, h);
+      }
+      if (h_tr == STONE && fire_in_block > 0u) {
+        let h = min(getLifetime(tr) + heat_gain, 255u);
+        tr = setLifetime(tr, h);
+      }
+      if (h_bl == STONE && fire_in_block > 0u) {
+        let h = min(getLifetime(bl) + heat_gain, 255u);
+        bl = setLifetime(bl, h);
+      }
+      if (h_br == STONE && fire_in_block > 0u) {
+        let h = min(getLifetime(br) + heat_gain, 255u);
+        br = setLifetime(br, h);
+      }
+
+      // --- Heat decay: ~1% chance per pass to cool by 1 ---
+      let cool_rng = hash(heat_rng ^ 0xC001D000u);
+      if (h_tl == STONE && getLifetime(tl) > 0u && (cool_rng & 127u) == 0u) {
+        tl = setLifetime(tl, getLifetime(tl) - 1u);
+      }
+      let cool_rng2 = hash(cool_rng ^ 0xC001D001u);
+      if (h_tr == STONE && getLifetime(tr) > 0u && (cool_rng2 & 127u) == 0u) {
+        tr = setLifetime(tr, getLifetime(tr) - 1u);
+      }
+      let cool_rng3 = hash(cool_rng2 ^ 0xC001D002u);
+      if (h_bl == STONE && getLifetime(bl) > 0u && (cool_rng3 & 127u) == 0u) {
+        bl = setLifetime(bl, getLifetime(bl) - 1u);
+      }
+      let cool_rng4 = hash(cool_rng3 ^ 0xC001D003u);
+      if (h_br == STONE && getLifetime(br) > 0u && (cool_rng4 & 127u) == 0u) {
+        br = setLifetime(br, getLifetime(br) - 1u);
+      }
+
+      // --- Stone-to-stone heat conduction ---
+      // Equalize heat between adjacent stone cells (1 unit toward average)
+      if (h_tl == STONE && h_tr == STONE) {
+        let ht1 = getLifetime(tl); let ht2 = getLifetime(tr);
+        if (ht1 > ht2 + 1u) { tl = setLifetime(tl, ht1 - 1u); tr = setLifetime(tr, ht2 + 1u); }
+        else if (ht2 > ht1 + 1u) { tr = setLifetime(tr, ht2 - 1u); tl = setLifetime(tl, ht1 + 1u); }
+      }
+      if (h_bl == STONE && h_br == STONE) {
+        let ht1 = getLifetime(bl); let ht2 = getLifetime(br);
+        if (ht1 > ht2 + 1u) { bl = setLifetime(bl, ht1 - 1u); br = setLifetime(br, ht2 + 1u); }
+        else if (ht2 > ht1 + 1u) { br = setLifetime(br, ht2 - 1u); bl = setLifetime(bl, ht1 + 1u); }
+      }
+      if (h_tl == STONE && h_bl == STONE) {
+        let ht1 = getLifetime(tl); let ht2 = getLifetime(bl);
+        if (ht1 > ht2 + 1u) { tl = setLifetime(tl, ht1 - 1u); bl = setLifetime(bl, ht2 + 1u); }
+        else if (ht2 > ht1 + 1u) { bl = setLifetime(bl, ht2 - 1u); tl = setLifetime(tl, ht1 + 1u); }
+      }
+      if (h_tr == STONE && h_br == STONE) {
+        let ht1 = getLifetime(tr); let ht2 = getLifetime(br);
+        if (ht1 > ht2 + 1u) { tr = setLifetime(tr, ht1 - 1u); br = setLifetime(br, ht2 + 1u); }
+        else if (ht2 > ht1 + 1u) { br = setLifetime(br, ht2 - 1u); tr = setLifetime(tr, ht1 + 1u); }
+      }
+
+      // --- Hot stone effects on neighbors ---
+      // Re-read elements (stone heat may not change types, but be safe)
+      let hx_tl = getElement(tl);
+      let hx_tr = getElement(tr);
+      let hx_bl = getElement(bl);
+      let hx_br = getElement(br);
+
+      // Find max stone heat in the block
+      var max_heat = 0u;
+      if (hx_tl == STONE) { max_heat = max(max_heat, getLifetime(tl)); }
+      if (hx_tr == STONE) { max_heat = max(max_heat, getLifetime(tr)); }
+      if (hx_bl == STONE) { max_heat = max(max_heat, getLifetime(bl)); }
+      if (hx_br == STONE) { max_heat = max(max_heat, getLifetime(br)); }
+
+      let fx_rng = hash(heat_rng ^ 0xFE0A0B0Cu);
+
+      // Hot stone (>150) ignites wood (~0.05% per pass)
+      if (max_heat > 150u) {
+        let fx_rng2 = hash(fx_rng ^ 0xA0B0C0D0u);
+        if (hx_tl == WOOD && (fx_rng & 2047u) == 0u) {
+          tl = makeCell(FIRE, (fx_rng >> 8u) & 0xFFu, 80u + fx_rng % 60u);
+        }
+        if (hx_tr == WOOD && (fx_rng2 & 2047u) == 0u) {
+          tr = makeCell(FIRE, (fx_rng2 >> 8u) & 0xFFu, 80u + fx_rng2 % 60u);
+        }
+        let fx_rng3 = hash(fx_rng2 ^ 0xB0C0D0E0u);
+        if (hx_bl == WOOD && (fx_rng3 & 2047u) == 0u) {
+          bl = makeCell(FIRE, (fx_rng3 >> 8u) & 0xFFu, 80u + fx_rng3 % 60u);
+        }
+        let fx_rng4 = hash(fx_rng3 ^ 0xC0D0E0F0u);
+        if (hx_br == WOOD && (fx_rng4 & 2047u) == 0u) {
+          br = makeCell(FIRE, (fx_rng4 >> 8u) & 0xFFu, 80u + fx_rng4 % 60u);
+        }
+      }
+
+      // Very hot stone (>200) melts sand (~0.5% per pass)
+      if (max_heat > 200u) {
+        let mx_rng = hash(fx_rng ^ 0xD0E0F000u);
+        if (hx_tl == SAND && (mx_rng % 200u) == 0u) {
+          tl = makeCell(GLASS, (mx_rng >> 8u) & 0xFFu, 0u);
+        }
+        let mx_rng2 = hash(mx_rng ^ 0xE0F00010u);
+        if (hx_tr == SAND && (mx_rng2 % 200u) == 0u) {
+          tr = makeCell(GLASS, (mx_rng2 >> 8u) & 0xFFu, 0u);
+        }
+        let mx_rng3 = hash(mx_rng2 ^ 0xF0001020u);
+        if (hx_bl == SAND && (mx_rng3 % 200u) == 0u) {
+          bl = makeCell(GLASS, (mx_rng3 >> 8u) & 0xFFu, 0u);
+        }
+        let mx_rng4 = hash(mx_rng3 ^ 0x00102030u);
+        if (hx_br == SAND && (mx_rng4 % 200u) == 0u) {
+          br = makeCell(GLASS, (mx_rng4 >> 8u) & 0xFFu, 0u);
+        }
+      }
+
+      // Hot stone (>100) boils water (~1% per pass)
+      if (max_heat > 100u) {
+        let bx_rng = hash(fx_rng ^ 0x5011BEE0u);
+        if (hx_tl == WATER && (bx_rng % 100u) < 1u) {
+          tl = makeCell(STEAM, (bx_rng >> 8u) & 0xFFu, 120u + bx_rng % 80u);
+        }
+        let bx_rng2 = hash(bx_rng ^ 0xB011BEE1u);
+        if (hx_tr == WATER && (bx_rng2 % 100u) < 1u) {
+          tr = makeCell(STEAM, (bx_rng2 >> 8u) & 0xFFu, 120u + bx_rng2 % 80u);
+        }
+        let bx_rng3 = hash(bx_rng2 ^ 0xB011BEE2u);
+        if (hx_bl == WATER && (bx_rng3 % 100u) < 1u) {
+          bl = makeCell(STEAM, (bx_rng3 >> 8u) & 0xFFu, 120u + bx_rng3 % 80u);
+        }
+        let bx_rng4 = hash(bx_rng3 ^ 0xB011BEE3u);
+        if (hx_br == WATER && (bx_rng4 % 100u) < 1u) {
+          br = makeCell(STEAM, (bx_rng4 >> 8u) & 0xFFu, 120u + bx_rng4 % 80u);
+        }
+      }
+    }
+  }
+
+  // Re-read elements after aging + alchemy + heat (types may have changed)
   let etl = getElement(tl);
   let etr = getElement(tr);
   let ebl = getElement(bl);
@@ -246,9 +490,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   // === PHASE 1: GRAVITY ===
   if (params.lateral_only == 0u && should_move) {
     // Try to drop left column: TL falls to BL
-    let can_drop_l = getDensity(etl) > getDensity(ebl) && etl != STONE;
+    let can_drop_l = getDensity(etl) > getDensity(ebl) && etl != STONE && etl != WOOD && etl != GLASS;
     // Try to drop right column: TR falls to BR
-    let can_drop_r = getDensity(etr) > getDensity(ebr) && etr != STONE;
+    let can_drop_r = getDensity(etr) > getDensity(ebr) && etr != STONE && etr != WOOD && etr != GLASS;
 
     // Sand-water drag: gates ALL sand movement through water (vertical + diagonal).
     // Without this, sand bypasses vertical drag via the diagonal dispersion path.
@@ -256,17 +500,20 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let sw_l = (etl == SAND && ebl == WATER) || (etl == WATER && ebl == SAND);
     let sw_r = (etr == SAND && ebr == WATER) || (etr == WATER && ebr == SAND);
 
-    // Gas rise drag: fire/steam rise slowly, not every pass.
+    // Gas rise drag: fire/steam/smoke rise slowly, not every pass.
     // Without this, gases teleport upward at full simulation speed.
     let gas_rng = (rng1 >> 6u) % 100u;
     let fire_l = (etl == FIRE && ebl == EMPTY) || (etl == EMPTY && ebl == FIRE);
     let fire_r = (etr == FIRE && ebr == EMPTY) || (etr == EMPTY && ebr == FIRE);
     let steam_l = (etl == STEAM && ebl == EMPTY) || (etl == EMPTY && ebl == STEAM);
     let steam_r = (etr == STEAM && ebr == EMPTY) || (etr == EMPTY && ebr == STEAM);
+    let smoke_l = (etl == SMOKE && ebl == EMPTY) || (etl == EMPTY && ebl == SMOKE);
+    let smoke_r = (etr == SMOKE && ebr == EMPTY) || (etr == EMPTY && ebr == SMOKE);
     let fire_can_move = gas_rng < 20u;  // 20% → ~2-3 rises/frame
     let steam_can_move = gas_rng < 35u; // 35% → ~4-5 rises/frame
-    let gas_ok_l = (!fire_l || fire_can_move) && (!steam_l || steam_can_move);
-    let gas_ok_r = (!fire_r || fire_can_move) && (!steam_r || steam_can_move);
+    let smoke_can_move = gas_rng < 30u; // 30% → ~3-4 rises/frame
+    let gas_ok_l = (!fire_l || fire_can_move) && (!steam_l || steam_can_move) && (!smoke_l || smoke_can_move);
+    let gas_ok_r = (!fire_r || fire_can_move) && (!steam_r || steam_can_move) && (!smoke_r || smoke_can_move);
 
     let drop_l = can_drop_l && (!sw_l || sand_water_move) && gas_ok_l;
     let drop_r = can_drop_r && (!sw_r || sand_water_move) && gas_ok_r;
@@ -287,8 +534,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
       // Diagonal slides: sand always, water only when the adjacent path is
       // clear (prevents scatter in streams) and with ~25% probability.
-      let tl_slide_base = d_tl > d_br && d_tl > EMPTY_DENSITY && d_bl >= d_tl && etl != STONE;
-      let tr_slide_base = d_tr > d_bl && d_tr > EMPTY_DENSITY && d_br >= d_tr && etr != STONE;
+      let tl_slide_base = d_tl > d_br && d_tl > EMPTY_DENSITY && d_bl >= d_tl && etl != STONE && etl != WOOD && etl != GLASS;
+      let tr_slide_base = d_tr > d_bl && d_tr > EMPTY_DENSITY && d_br >= d_tr && etr != STONE && etr != WOOD && etr != GLASS;
       let water_diag = ((rng1 >> 8u) & 3u) == 0u;
 
       // Sand disperses through water even when not resting on something.
@@ -367,6 +614,30 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       // Top row: one steam + one empty
       if ((st_tl == STEAM && st_tr == EMPTY) || (st_tr == STEAM && st_tl == EMPTY)) {
         if ((st_bl != EMPTY && st_br != EMPTY) || steam_free_spread) {
+          let tmp = tl; tl = tr; tr = tmp;
+        }
+      }
+    }
+
+    // Smoke lateral spread: similar to steam, loose dispersal.
+    {
+      let sk_tl = getElement(tl);
+      let sk_tr = getElement(tr);
+      let sk_bl = getElement(bl);
+      let sk_br = getElement(br);
+      let smoke_spread_rng = hash(rng0 ^ 0x540EEEE0u);
+      let smoke_free_spread = (smoke_spread_rng & 7u) == 0u; // ~12.5%
+
+      // Bottom row: one smoke + one empty
+      if ((sk_bl == SMOKE && sk_br == EMPTY) || (sk_br == SMOKE && sk_bl == EMPTY)) {
+        if ((sk_tl != EMPTY && sk_tr != EMPTY) || smoke_free_spread) {
+          let tmp = bl; bl = br; br = tmp;
+        }
+      }
+
+      // Top row: one smoke + one empty
+      if ((sk_tl == SMOKE && sk_tr == EMPTY) || (sk_tr == SMOKE && sk_tl == EMPTY)) {
+        if ((sk_bl != EMPTY && sk_br != EMPTY) || smoke_free_spread) {
           let tmp = tl; tl = tr; tr = tmp;
         }
       }

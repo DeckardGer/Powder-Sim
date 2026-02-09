@@ -29,6 +29,11 @@ export function SimulationCanvas({
   const rendererRef = useRef<SimulationRenderer | null>(null);
   const animFrameRef = useRef<number>(0);
   const fpsCounterRef = useRef({ frames: 0, lastTime: performance.now() });
+  const simAccumulatorRef = useRef({ lastTime: 0, accumulator: 0 });
+
+  // Fixed timestep: 60 simulation steps per second, max 4 catch-up steps
+  const SIM_DT = 1000 / 60;
+  const MAX_SIM_STEPS = 4;
 
   const gameLoop = useCallback(
     (canvasContext: GPUCanvasContext) => {
@@ -37,23 +42,28 @@ export function SimulationCanvas({
       if (!simulation || !renderer) return;
 
       const { device } = gpuContext;
+      simAccumulatorRef.current.lastTime = performance.now();
 
       const loop = () => {
-        // Skip frame if tab was backgrounded (avoids FPS spike)
         const now = performance.now();
-        const elapsed = now - fpsCounterRef.current.lastTime;
-        if (elapsed > 2000) {
+        const frameElapsed = now - simAccumulatorRef.current.lastTime;
+        simAccumulatorRef.current.lastTime = now;
+
+        // Skip frame if tab was backgrounded (avoids massive catch-up)
+        const fpsElapsed = now - fpsCounterRef.current.lastTime;
+        if (fpsElapsed > 2000) {
           fpsCounterRef.current.lastTime = now;
           fpsCounterRef.current.frames = 0;
+          simAccumulatorRef.current.accumulator = 0;
           animFrameRef.current = requestAnimationFrame(loop);
           return;
         }
 
         // FPS tracking
         fpsCounterRef.current.frames++;
-        if (elapsed >= 1000) {
+        if (fpsElapsed >= 1000) {
           const fps = Math.round(
-            (fpsCounterRef.current.frames * 1000) / elapsed,
+            (fpsCounterRef.current.frames * 1000) / fpsElapsed,
           );
           fpsCounterRef.current.frames = 0;
           fpsCounterRef.current.lastTime = now;
@@ -65,18 +75,38 @@ export function SimulationCanvas({
           });
         }
 
-        // Single command encoder for compute + render
-        const encoder = device.createCommandEncoder();
-        simulation.step(encoder);
+        // Fixed-timestep accumulator: run simulation at constant rate
+        simAccumulatorRef.current.accumulator += frameElapsed;
+        let simSteps = 0;
+        while (
+          simAccumulatorRef.current.accumulator >= SIM_DT &&
+          simSteps < MAX_SIM_STEPS
+        ) {
+          simAccumulatorRef.current.accumulator -= SIM_DT;
+          simSteps++;
+        }
+        // Drain excess accumulator to prevent spiral-of-death
+        if (simAccumulatorRef.current.accumulator > SIM_DT) {
+          simAccumulatorRef.current.accumulator = 0;
+        }
 
-        const textureView = canvasContext.getCurrentTexture().createView();
-        renderer.render(
-          encoder,
-          textureView,
-          simulation.getCurrentBufferIndex(),
-        );
+        // Batch all sim steps + render into one command encoder
+        if (simSteps > 0) {
+          const encoder = device.createCommandEncoder();
+          for (let i = 0; i < simSteps; i++) {
+            simulation.step(encoder);
+          }
 
-        device.queue.submit([encoder.finish()]);
+          const textureView = canvasContext.getCurrentTexture().createView();
+          renderer.render(
+            encoder,
+            textureView,
+            simulation.getCurrentBufferIndex(),
+          );
+
+          device.queue.submit([encoder.finish()]);
+        }
+
         animFrameRef.current = requestAnimationFrame(loop);
       };
 
