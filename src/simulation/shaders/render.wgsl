@@ -57,9 +57,10 @@ fn sandColor(variation: f32) -> vec3f {
 }
 
 fn waterColor(variation: f32) -> vec3f {
-  let base = vec3f(0.2, 0.4, 0.85);
-  let alt = vec3f(0.15, 0.35, 0.75);
-  return mix(alt, base, variation);
+  let base = vec3f(0.18, 0.38, 0.82);
+  // Very tight variation — reads as smooth liquid with subtle shimmer
+  let v = (variation - 0.5) * 0.04;
+  return base + vec3f(v * 0.3, v * 0.6, v);
 }
 
 fn stoneColor(variation: f32, heat: f32) -> vec3f {
@@ -144,15 +145,10 @@ fn glassColor(variation: f32) -> vec3f {
 }
 
 fn oilColor(variation: f32) -> vec3f {
-  // Dark amber/brown-black crude oil palette
-  let base = vec3f(0.15, 0.1, 0.04);
-  let dark = vec3f(0.08, 0.05, 0.02);
-  let amber = vec3f(0.25, 0.15, 0.05);
-  let t = variation;
-  if (t < 0.5) {
-    return mix(dark, base, t * 2.0);
-  }
-  return mix(base, amber, (t - 0.5) * 2.0);
+  let base = vec3f(0.12, 0.08, 0.03);
+  // Tight variation — smooth dark liquid with faint amber shift
+  let v = (variation - 0.5) * 0.04;
+  return base + vec3f(v * 0.8, v * 0.4, v * 0.1);
 }
 
 fn steamColor(variation: f32, lifetime: f32) -> vec3f {
