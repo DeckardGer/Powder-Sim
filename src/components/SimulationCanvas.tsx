@@ -39,10 +39,18 @@ export function SimulationCanvas({
       const { device } = gpuContext;
 
       const loop = () => {
-        // FPS tracking
+        // Skip frame if tab was backgrounded (avoids FPS spike)
         const now = performance.now();
-        fpsCounterRef.current.frames++;
         const elapsed = now - fpsCounterRef.current.lastTime;
+        if (elapsed > 2000) {
+          fpsCounterRef.current.lastTime = now;
+          fpsCounterRef.current.frames = 0;
+          animFrameRef.current = requestAnimationFrame(loop);
+          return;
+        }
+
+        // FPS tracking
+        fpsCounterRef.current.frames++;
         if (elapsed >= 1000) {
           const fps = Math.round(
             (fpsCounterRef.current.frames * 1000) / elapsed
