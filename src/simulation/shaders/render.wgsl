@@ -18,15 +18,19 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
   return out;
 }
 
-// Cell encoding: bits 0-7 = element type, bits 8-15 = color variation
+// Cell encoding: bits 0-7 = element type, bits 8-15 = color variation, bits 16-23 = lifetime
 const ELEMENT_MASK: u32 = 0xFFu;
 const COLOR_SHIFT: u32 = 8u;
 const COLOR_MASK: u32 = 0xFFu;
+const LIFETIME_SHIFT: u32 = 16u;
+const LIFETIME_MASK: u32 = 0xFFu;
 
 const EMPTY: u32 = 0u;
 const SAND: u32 = 1u;
 const WATER: u32 = 2u;
 const STONE: u32 = 3u;
+const FIRE: u32 = 4u;
+const STEAM: u32 = 5u;
 
 struct RenderParams {
   width: u32,
@@ -60,6 +64,40 @@ fn stoneColor(variation: f32) -> vec3f {
   return mix(alt, base, variation);
 }
 
+fn fireColor(variation: f32, lifetime: f32) -> vec3f {
+  // Normalize lifetime: spawns at ~60-120, so /120 gives 0→1 range
+  let t = clamp(lifetime / 120.0, 0.0, 1.0);
+  // Dark red → orange → yellow → white-hot
+  let dark_red = vec3f(0.5, 0.05, 0.0);
+  let orange = vec3f(1.0, 0.45, 0.0);
+  let yellow = vec3f(1.0, 0.85, 0.15);
+  let white_hot = vec3f(1.0, 0.97, 0.7);
+  var color: vec3f;
+  if (t < 0.2) {
+    color = mix(dark_red, orange, t * 5.0);
+  } else if (t < 0.55) {
+    color = mix(orange, yellow, (t - 0.2) / 0.35);
+  } else {
+    color = mix(yellow, white_hot, (t - 0.55) / 0.45);
+  }
+  // Flicker from color variation
+  let flicker = (variation - 0.5) * 0.25;
+  color += vec3f(flicker, flicker * 0.4, 0.0);
+  return clamp(color, vec3f(0.0), vec3f(1.0));
+}
+
+fn steamColor(variation: f32, lifetime: f32) -> vec3f {
+  // Normalize: spawns at ~150-250, so /200 gives ~0.75-1.25 (clamped)
+  let t = clamp(lifetime / 200.0, 0.0, 1.0);
+  // Fresh steam is bright white, aging steam fades toward background
+  let fresh = vec3f(0.82, 0.84, 0.88);
+  let faded = vec3f(0.2, 0.21, 0.24);
+  let base = mix(faded, fresh, t);
+  // Per-particle variation for wispy look
+  let vary = (variation - 0.5) * 0.18;
+  return clamp(base + vec3f(vary, vary, vary * 1.1), vec3f(0.0), vec3f(1.0));
+}
+
 @fragment
 fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let px = u32(uv.x * f32(params.width));
@@ -73,6 +111,7 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let cell = cells[py * params.width + px];
   let element = cell & ELEMENT_MASK;
   let colorVar = f32((cell >> COLOR_SHIFT) & COLOR_MASK) / 255.0;
+  let lifetime = f32((cell >> LIFETIME_SHIFT) & LIFETIME_MASK);
 
   var color: vec3f;
 
@@ -85,6 +124,12 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
     }
     case STONE: {
       color = stoneColor(colorVar);
+    }
+    case FIRE: {
+      color = fireColor(colorVar, lifetime);
+    }
+    case STEAM: {
+      color = steamColor(colorVar, lifetime);
     }
     default: {
       // Empty: near-black with subtle grid pattern

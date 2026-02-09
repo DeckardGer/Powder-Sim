@@ -74,10 +74,18 @@ export function useSimulation() {
           continue;
 
         const colorVar = Math.floor(Math.random() * 256);
-        const value =
-          brush.element === ElementType.Empty
-            ? 0
-            : brush.element | (colorVar << 8);
+        let value: number;
+        if (brush.element === ElementType.Empty) {
+          value = 0;
+        } else if (brush.element === ElementType.Fire) {
+          const lifetime = 60 + Math.floor(Math.random() * 60); // 60-119
+          value = brush.element | (colorVar << 8) | (lifetime << 16);
+        } else if (brush.element === ElementType.Steam) {
+          const lifetime = 150 + Math.floor(Math.random() * 100); // 150-249
+          value = brush.element | (colorVar << 8) | (lifetime << 16);
+        } else {
+          value = brush.element | (colorVar << 8);
+        }
 
         const key = y * DEFAULT_CONFIG.width + x;
         pendingCellsRef.current.set(key, { x, y, value });
