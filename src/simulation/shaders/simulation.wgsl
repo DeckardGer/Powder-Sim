@@ -17,6 +17,7 @@ struct Params {
   offset_x: u32,
   offset_y: u32,
   frame: u32,
+  lateral_only: u32,
 }
 
 @group(0) @binding(0) var<storage, read> input: array<u32>;
@@ -59,6 +60,20 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let bx = gid.x * 2u + params.offset_x;
   let by = gid.y * 2u + params.offset_y;
 
+  // When offset is 1, the first row/column (x=0 or y=0) isn't part of any
+  // 2x2 block and would never be written to output, losing particles through
+  // the ping-pong. Each edge thread copies these orphaned cells through.
+  if (params.offset_x == 1u && gid.x == 0u) {
+    let ey = gid.y * 2u;
+    if (ey < params.height) { output[idx(0u, ey)] = input[idx(0u, ey)]; }
+    if (ey + 1u < params.height) { output[idx(0u, ey + 1u)] = input[idx(0u, ey + 1u)]; }
+  }
+  if (params.offset_y == 1u && gid.y == 0u) {
+    let ex = gid.x * 2u;
+    if (ex < params.width) { output[idx(ex, 0u)] = input[idx(ex, 0u)]; }
+    if (ex + 1u < params.width) { output[idx(ex + 1u, 0u)] = input[idx(ex + 1u, 0u)]; }
+  }
+
   // Bounds check: all 4 cells of the 2x2 block must be in grid
   if (bx + 1u >= params.width || by + 1u >= params.height) {
     if (bx < params.width && by < params.height) {
@@ -98,7 +113,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let ebl = getElement(bl);
   let ebr = getElement(br);
 
-  if (should_move) {
+  if (params.lateral_only == 0u && should_move) {
     // Try to drop left column: TL falls to BL
     let can_drop_l = getDensity(etl) > getDensity(ebl) && etl != STONE;
     // Try to drop right column: TR falls to BR
