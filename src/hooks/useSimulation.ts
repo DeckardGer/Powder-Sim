@@ -9,9 +9,12 @@ interface PendingCell {
   value: number;
 }
 
-export function useSimulation() {
+export function useSimulation(
+  gridSize: number = DEFAULT_CONFIG.width,
+  initialBrushSize: number = DEFAULT_BRUSH.size,
+) {
   const simulationRef = useRef<PowderSimulation | null>(null);
-  const brushRef = useRef<BrushConfig>({ ...DEFAULT_BRUSH });
+  const brushRef = useRef<BrushConfig>({ ...DEFAULT_BRUSH, size: initialBrushSize });
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
   const isDrawingRef = useRef(false);
   const pendingCellsRef = useRef<Map<number, PendingCell>>(new Map());
@@ -44,14 +47,14 @@ export function useSimulation() {
       canvas: HTMLCanvasElement,
     ): { x: number; y: number } => {
       const rect = canvas.getBoundingClientRect();
-      const scaleX = DEFAULT_CONFIG.width / rect.width;
-      const scaleY = DEFAULT_CONFIG.height / rect.height;
+      const scaleX = gridSize / rect.width;
+      const scaleY = gridSize / rect.height;
       return {
         x: Math.floor((canvasX - rect.left) * scaleX),
         y: Math.floor((canvasY - rect.top) * scaleY),
       };
     },
-    [],
+    [gridSize],
   );
 
   /** Paint a circular brush stamp at (cx, cy) */
@@ -65,13 +68,7 @@ export function useSimulation() {
         if (dx * dx + dy * dy > rSq) continue;
         const x = cx + dx;
         const y = cy + dy;
-        if (
-          x < 0 ||
-          x >= DEFAULT_CONFIG.width ||
-          y < 0 ||
-          y >= DEFAULT_CONFIG.height
-        )
-          continue;
+        if (x < 0 || x >= gridSize || y < 0 || y >= gridSize) continue;
 
         const colorVar = Math.floor(Math.random() * 256);
         let value: number;
@@ -87,11 +84,11 @@ export function useSimulation() {
           value = brush.element | (colorVar << 8);
         }
 
-        const key = y * DEFAULT_CONFIG.width + x;
+        const key = y * gridSize + x;
         pendingCellsRef.current.set(key, { x, y, value });
       }
     }
-  }, []);
+  }, [gridSize]);
 
   /** Bresenham line interpolation between two points */
   const bresenhamLine = useCallback(

@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
-import type { AppScreen, SimulationStats } from "@/types";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import type { AppScreen, SimulationConfig, SimulationSettings, SimulationStats } from "@/types";
+import { DEFAULT_SETTINGS } from "@/types";
 import { useWebGPU } from "@/hooks/useWebGPU";
 import { useSimulation } from "@/hooks/useSimulation";
 import { GPUFallback } from "@/components/GPUFallback";
@@ -11,11 +12,21 @@ import { Toolbar } from "@/components/Toolbar";
 function App() {
   const gpu = useWebGPU();
   const [screen, setScreen] = useState<AppScreen>("title");
+  const [settings, setSettings] = useState<SimulationSettings>(DEFAULT_SETTINGS);
   const [stats, setStats] = useState<SimulationStats>({
     fps: 0,
     particleCount: 0,
     frameCount: 0,
   });
+
+  const simConfig = useMemo<SimulationConfig>(
+    () => ({
+      width: settings.gridSize,
+      height: settings.gridSize,
+      workgroupSize: 16,
+    }),
+    [settings.gridSize],
+  );
 
   const {
     setSimulation,
@@ -25,7 +36,7 @@ function App() {
     clearSimulation,
     flushCells,
     pointerHandlers,
-  } = useSimulation();
+  } = useSimulation(settings.gridSize, settings.brushSize);
 
   // Force re-render when brush changes (brushRef is a ref, not state)
   const [brushState, setBrushState] = useState(brushRef.current);
@@ -97,13 +108,23 @@ function App() {
   }
 
   if (screen === "title") {
-    return <TitleScreen onPlay={() => setScreen("simulation")} />;
+    return (
+      <TitleScreen
+        settings={settings}
+        onPlay={(s) => {
+          setSettings(s);
+          handleBrushSizeChange(s.brushSize);
+          setScreen("simulation");
+        }}
+      />
+    );
   }
 
   return (
     <div className="relative h-screen w-screen bg-background pb-8">
       <SimulationCanvas
         gpuContext={gpu.context}
+        config={simConfig}
         onStatsUpdate={handleStatsUpdate}
         onSimulationReady={setSimulation}
         pointerHandlers={pointerHandlers}

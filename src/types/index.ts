@@ -35,8 +35,18 @@ export interface BrushConfig {
 export const DEFAULT_BRUSH: BrushConfig = {
   element: ElementType.Sand,
   size: 8,
-  minSize: 1,
+  minSize: 2,
   maxSize: 32,
+};
+
+export interface SimulationSettings {
+  gridSize: number;
+  brushSize: number;
+}
+
+export const DEFAULT_SETTINGS: SimulationSettings = {
+  gridSize: 512,
+  brushSize: 8,
 };
 
 export type AppScreen = "title" | "simulation";

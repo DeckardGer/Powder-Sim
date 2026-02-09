@@ -2,12 +2,13 @@ import { useRef, useEffect, useCallback } from "react";
 import { configureCanvas } from "@/simulation/gpu";
 import { PowderSimulation } from "@/simulation/simulation";
 import { SimulationRenderer } from "@/simulation/renderer";
-import type { SimulationStats } from "@/types";
+import type { SimulationConfig, SimulationStats } from "@/types";
 import { DEFAULT_CONFIG } from "@/types";
 import type { GPUContext } from "@/simulation/gpu";
 
 interface SimulationCanvasProps {
   gpuContext: GPUContext;
+  config?: SimulationConfig;
   onStatsUpdate?: (stats: SimulationStats) => void;
   onSimulationReady?: (simulation: PowderSimulation) => void;
   onFlushCells?: () => void;
@@ -21,6 +22,7 @@ interface SimulationCanvasProps {
 
 export function SimulationCanvas({
   gpuContext,
+  config = DEFAULT_CONFIG,
   onStatsUpdate,
   onSimulationReady,
   onFlushCells,
@@ -128,13 +130,13 @@ export function SimulationCanvas({
 
     const { device } = gpuContext;
 
-    canvas.width = DEFAULT_CONFIG.width;
-    canvas.height = DEFAULT_CONFIG.height;
+    canvas.width = config.width;
+    canvas.height = config.height;
 
     const canvasContext = configureCanvas(canvas, device);
     const format = navigator.gpu.getPreferredCanvasFormat();
 
-    const simulation = new PowderSimulation(device);
+    const simulation = new PowderSimulation(device, config);
     const renderer = new SimulationRenderer(device, simulation, format);
 
     simulationRef.current = simulation;
@@ -152,7 +154,7 @@ export function SimulationCanvas({
       simulationRef.current = null;
       rendererRef.current = null;
     };
-  }, [gpuContext, gameLoop, onSimulationReady]);
+  }, [gpuContext, config, gameLoop, onSimulationReady]);
 
   return (
     <canvas

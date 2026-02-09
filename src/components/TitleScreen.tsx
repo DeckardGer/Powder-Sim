@@ -6,14 +6,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type { SimulationSettings } from "@/types";
+import { DEFAULT_SETTINGS } from "@/types";
 
 interface TitleScreenProps {
-  onPlay: () => void;
+  settings?: SimulationSettings;
+  onPlay: (settings: SimulationSettings) => void;
 }
 
-export function TitleScreen({ onPlay }: TitleScreenProps) {
+const GRID_SIZES = [256, 512, 1024] as const;
+const BRUSH_MIN = 2;
+const BRUSH_MAX = 32;
+const BRUSH_STEP = 2;
+
+export function TitleScreen({ settings: initialSettings, onPlay }: TitleScreenProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [gridSize, setGridSize] = useState(initialSettings?.gridSize ?? DEFAULT_SETTINGS.gridSize);
+  const [brushSize, setBrushSize] = useState(initialSettings?.brushSize ?? DEFAULT_SETTINGS.brushSize);
 
   return (
     <div className="relative flex h-screen w-screen flex-col items-center justify-center bg-background">
@@ -43,7 +53,7 @@ export function TitleScreen({ onPlay }: TitleScreenProps) {
           <Button
             variant="outline"
             className="h-12 w-64 border-2 border-foreground text-sm uppercase tracking-[0.3em] transition-none hover:bg-foreground hover:text-background"
-            onClick={onPlay}
+            onClick={() => onPlay({ gridSize, brushSize })}
           >
             PLAY
           </Button>
@@ -77,13 +87,57 @@ export function TitleScreen({ onPlay }: TitleScreenProps) {
               SETTINGS
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <div className="flex items-center justify-between border-b border-foreground/10 pb-3">
+          <div className="space-y-5 pt-2">
+            {/* Grid Size selector */}
+            <div className="space-y-2 border-b border-foreground/10 pb-4">
               <span className="text-xs uppercase tracking-wider text-muted-foreground">
                 GRID SIZE
               </span>
-              <span className="text-xs">512 x 512</span>
+              <div className="flex gap-2">
+                {GRID_SIZES.map((size) => (
+                  <Button
+                    key={size}
+                    variant="outline"
+                    className={`h-8 flex-1 border-2 text-xs uppercase tracking-wider transition-none ${
+                      gridSize === size
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-foreground/40 text-muted-foreground hover:border-foreground hover:bg-foreground hover:text-background"
+                    }`}
+                    onClick={() => setGridSize(size)}
+                  >
+                    {size}
+                  </Button>
+                ))}
+              </div>
             </div>
+
+            {/* Brush Size selector */}
+            <div className="space-y-2 border-b border-foreground/10 pb-4">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                DEFAULT BRUSH SIZE
+              </span>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="outline"
+                  className="h-8 w-8 border-2 border-foreground/40 text-xs transition-none hover:border-foreground hover:bg-foreground hover:text-background"
+                  onClick={() => setBrushSize(Math.max(BRUSH_MIN, brushSize - BRUSH_STEP))}
+                >
+                  −
+                </Button>
+                <span className="w-8 text-center text-sm tabular-nums">
+                  {brushSize}
+                </span>
+                <Button
+                  variant="outline"
+                  className="h-8 w-8 border-2 border-foreground/40 text-xs transition-none hover:border-foreground hover:bg-foreground hover:text-background"
+                  onClick={() => setBrushSize(Math.min(BRUSH_MAX, brushSize + BRUSH_STEP))}
+                >
+                  +
+                </Button>
+              </div>
+            </div>
+
+            {/* Read-only info */}
             <div className="flex items-center justify-between border-b border-foreground/10 pb-3">
               <span className="text-xs uppercase tracking-wider text-muted-foreground">
                 RENDERER
