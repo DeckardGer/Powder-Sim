@@ -164,11 +164,14 @@ export class PowderSimulation {
     this.frameCount = 0;
   }
 
-  /** Get the current read buffer (for rendering) */
-  getCurrentBuffer(): GPUBuffer {
-    // After step(), the result is in the last write buffer
-    // Direction alternates, so we track based on frame parity
-    return this.buffers[(this.frameCount * 4) % 2];
+  /** Get the current read buffer index (for rendering) */
+  getCurrentBufferIndex(): number {
+    return (this.frameCount * 4) % 2;
+  }
+
+  /** Get a specific ping-pong buffer by index */
+  getBuffer(index: number): GPUBuffer {
+    return this.buffers[index];
   }
 
   get width(): number {
