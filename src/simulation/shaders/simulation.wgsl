@@ -85,7 +85,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   // Multiple independent random values from different seeds
   let rng0 = hash(bx * 1973u + by * 9277u + params.frame * 26699u);
   let rng1 = hash(rng0 ^ 0xDEADBEEFu);
-  let rng2 = hash(rng1 ^ 0xCAFEBABEu);
   let rand_bit = rng0 & 1u;
 
   // Probabilistic movement: ~75% chance a block processes gravity.
@@ -119,8 +118,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       let d_bl = getDensity(ebl);
       let d_br = getDensity(ebr);
 
-      let tl_slide = d_tl > d_br && d_tl > 0u && d_bl >= d_tl && etl != STONE;
-      let tr_slide = d_tr > d_bl && d_tr > 0u && d_br >= d_tr && etr != STONE;
+      // Diagonal slides: sand always, water only when the adjacent path is
+      // clear (prevents scatter in streams) and with ~25% probability.
+      let tl_slide_base = d_tl > d_br && d_tl > 0u && d_bl >= d_tl && etl != STONE;
+      let tr_slide_base = d_tr > d_bl && d_tr > 0u && d_br >= d_tr && etr != STONE;
+      let water_diag = ((rng1 >> 8u) & 3u) == 0u;
+      let tl_slide = tl_slide_base && (etl != WATER || (d_tr < d_tl && water_diag));
+      let tr_slide = tr_slide_base && (etr != WATER || (d_tl < d_tr && water_diag));
 
       if (tl_slide && tr_slide) {
         if (rand_bit == 0u) {
@@ -132,18 +136,32 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let tmp = tl; tl = br; br = tmp;
       } else if (tr_slide) {
         let tmp = tr; tr = bl; bl = tmp;
-      } else {
-        // Lateral spread for water — use a second random bit for direction
-        let lat_bit = (rng2 >> 2u) & 1u;
-        if (etl == WATER && etr == EMPTY && lat_bit == 0u) {
-          let tmp = tl; tl = tr; tr = tmp;
-        } else if (etr == WATER && etl == EMPTY && lat_bit == 1u) {
-          let tmp = tr; tr = tl; tl = tmp;
-        } else if (ebl == WATER && ebr == EMPTY && lat_bit == 0u) {
-          let tmp = bl; bl = br; br = tmp;
-        } else if (ebr == WATER && ebl == EMPTY && lat_bit == 1u) {
-          let tmp = br; br = bl; bl = tmp;
-        }
+      }
+    }
+  }
+
+  // Phase 2: Water lateral spread (based on diving-beet/falling-turnip rules)
+  // Runs every pass (not gated by should_move) for fast pool leveling.
+  // A row may spread only when the OTHER row is fully occupied — this
+  // naturally prevents narrow falling columns from widening mid-air
+  // while allowing pool edges to level quickly.
+  {
+    let w_tl = getElement(tl);
+    let w_tr = getElement(tr);
+    let w_bl = getElement(bl);
+    let w_br = getElement(br);
+
+    // Bottom row: one water + one empty → swap if top row fully occupied
+    if ((w_bl == WATER && w_br == EMPTY) || (w_br == WATER && w_bl == EMPTY)) {
+      if (w_tl != EMPTY && w_tr != EMPTY) {
+        let tmp = bl; bl = br; br = tmp;
+      }
+    }
+
+    // Top row: one water + one empty → swap if bottom row fully occupied
+    if ((w_tl == WATER && w_tr == EMPTY) || (w_tr == WATER && w_tl == EMPTY)) {
+      if (w_bl != EMPTY && w_br != EMPTY) {
+        let tmp = tl; tl = tr; tr = tmp;
       }
     }
   }

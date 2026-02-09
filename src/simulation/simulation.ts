@@ -9,7 +9,7 @@ const MARGOLUS_OFFSETS: [number, number][] = [
   [1, 1],
 ];
 
-const PASSES_PER_FRAME = 8;
+const PASSES_PER_FRAME = 12;
 
 export class PowderSimulation {
   private device: GPUDevice;
@@ -126,7 +126,8 @@ export class PowderSimulation {
     );
 
     const passOffsets: number[] = [];
-    for (let sweep = 0; sweep < 2; sweep++) {
+    const sweepCount = PASSES_PER_FRAME / 4;
+    for (let sweep = 0; sweep < sweepCount; sweep++) {
       const order = [0, 1, 2, 3];
       let seed = this.hashU32(this.frameCount * 2 + sweep);
       for (let i = 3; i > 0; i--) {
