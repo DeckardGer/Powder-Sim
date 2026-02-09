@@ -269,18 +269,22 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       let rng_d = hash(rng_c ^ 0x9ABC2345u);
 
       // Fire: extinguished → becomes steam (hiss effect).
-      // Water: mostly survives, 30% → steam from heat.
+      // Water: mostly survives, 30% consumed (60% of consumed → steam, 40% → empty).
+      let steam_coin_a = hash(rng_a ^ 0x5EA40001u);
       if (a_tl == FIRE) { tl = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 40u + rng_a % 40u); }
-      else if (a_tl == WATER) { if ((rng_a % 100u) < 30u) { tl = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 60u + rng_a % 60u); } }
+      else if (a_tl == WATER) { if ((rng_a % 100u) < 30u) { if ((steam_coin_a % 100u) < 60u) { tl = makeCell(STEAM, (rng_a >> 8u) & 0xFFu, 60u + rng_a % 60u); } else { tl = 0u; } } }
 
+      let steam_coin_b = hash(rng_b ^ 0x5EA40002u);
       if (a_tr == FIRE) { tr = makeCell(STEAM, (rng_b >> 8u) & 0xFFu, 40u + rng_b % 40u); }
-      else if (a_tr == WATER) { if ((rng_b % 100u) < 30u) { tr = makeCell(STEAM, (rng_b >> 8u) & 0xFFu, 60u + rng_b % 60u); } }
+      else if (a_tr == WATER) { if ((rng_b % 100u) < 30u) { if ((steam_coin_b % 100u) < 60u) { tr = makeCell(STEAM, (rng_b >> 8u) & 0xFFu, 60u + rng_b % 60u); } else { tr = 0u; } } }
 
+      let steam_coin_c = hash(rng_c ^ 0x5EA40003u);
       if (a_bl == FIRE) { bl = makeCell(STEAM, (rng_c >> 8u) & 0xFFu, 40u + rng_c % 40u); }
-      else if (a_bl == WATER) { if ((rng_c % 100u) < 30u) { bl = makeCell(STEAM, (rng_c >> 8u) & 0xFFu, 60u + rng_c % 60u); } }
+      else if (a_bl == WATER) { if ((rng_c % 100u) < 30u) { if ((steam_coin_c % 100u) < 60u) { bl = makeCell(STEAM, (rng_c >> 8u) & 0xFFu, 60u + rng_c % 60u); } else { bl = 0u; } } }
 
+      let steam_coin_d = hash(rng_d ^ 0x5EA40004u);
       if (a_br == FIRE) { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 40u + rng_d % 40u); }
-      else if (a_br == WATER) { if ((rng_d % 100u) < 30u) { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 60u + rng_d % 60u); } }
+      else if (a_br == WATER) { if ((rng_d % 100u) < 30u) { if ((steam_coin_d % 100u) < 60u) { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 60u + rng_d % 60u); } else { br = 0u; } } }
     }
   }
 
@@ -438,15 +442,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if (lv_bl == LAVA) { let h = getLifetime(bl); if (h > cool_amt) { bl = setLifetime(bl, h - cool_amt); } else { bl = setLifetime(bl, 0u); } }
         if (lv_br == LAVA) { let h = getLifetime(br); if (h > cool_amt) { br = setLifetime(br, h - cool_amt); } else { br = setLifetime(br, 0u); } }
 
-        // Evaporate water (~50%/pass)
+        // Evaporate water (~50%/pass, 60% of consumed → steam, 40% → empty)
         let lv_rw = hash(lv_rng ^ 0xface0001u);
-        if (lv_tl == WATER && (lv_rw % 100u) < 50u) { tl = makeCell(STEAM, (lv_rw >> 8u) & 0xFFu, 80u + lv_rw % 60u); }
+        let lv_sc1 = hash(lv_rw ^ 0x5EA40001u);
+        if (lv_tl == WATER && (lv_rw % 100u) < 50u) { if ((lv_sc1 % 100u) < 60u) { tl = makeCell(STEAM, (lv_rw >> 8u) & 0xFFu, 80u + lv_rw % 60u); } else { tl = 0u; } }
         let lv_rw2 = hash(lv_rw ^ 0xface0002u);
-        if (lv_tr == WATER && (lv_rw2 % 100u) < 50u) { tr = makeCell(STEAM, (lv_rw2 >> 8u) & 0xFFu, 80u + lv_rw2 % 60u); }
+        let lv_sc2 = hash(lv_rw2 ^ 0x5EA40002u);
+        if (lv_tr == WATER && (lv_rw2 % 100u) < 50u) { if ((lv_sc2 % 100u) < 60u) { tr = makeCell(STEAM, (lv_rw2 >> 8u) & 0xFFu, 80u + lv_rw2 % 60u); } else { tr = 0u; } }
         let lv_rw3 = hash(lv_rw2 ^ 0xface0003u);
-        if (lv_bl == WATER && (lv_rw3 % 100u) < 50u) { bl = makeCell(STEAM, (lv_rw3 >> 8u) & 0xFFu, 80u + lv_rw3 % 60u); }
+        let lv_sc3 = hash(lv_rw3 ^ 0x5EA40003u);
+        if (lv_bl == WATER && (lv_rw3 % 100u) < 50u) { if ((lv_sc3 % 100u) < 60u) { bl = makeCell(STEAM, (lv_rw3 >> 8u) & 0xFFu, 80u + lv_rw3 % 60u); } else { bl = 0u; } }
         let lv_rw4 = hash(lv_rw3 ^ 0xface0004u);
-        if (lv_br == WATER && (lv_rw4 % 100u) < 50u) { br = makeCell(STEAM, (lv_rw4 >> 8u) & 0xFFu, 80u + lv_rw4 % 60u); }
+        let lv_sc4 = hash(lv_rw4 ^ 0x5EA40004u);
+        if (lv_br == WATER && (lv_rw4 % 100u) < 50u) { if ((lv_sc4 % 100u) < 60u) { br = makeCell(STEAM, (lv_rw4 >> 8u) & 0xFFu, 80u + lv_rw4 % 60u); } else { br = 0u; } }
       }
 
       // Re-read after water interaction (types may have changed)
@@ -559,13 +567,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let has_water_ac = (ac2_tl == WATER || ac2_tr == WATER || ac2_bl == WATER || ac2_br == WATER);
         if (has_water_ac) {
           let aw_rng = hash(ac_rng ^ 0xaeed0001u);
-          if (ac2_tl == WATER && (aw_rng % 100u) < 4u) { tl = makeCell(STEAM, (aw_rng >> 8u) & 0xFFu, 60u + aw_rng % 40u); }
+          let aw_sc1 = hash(aw_rng ^ 0x5EA40001u);
+          if (ac2_tl == WATER && (aw_rng % 100u) < 4u) { if ((aw_sc1 % 100u) < 60u) { tl = makeCell(STEAM, (aw_rng >> 8u) & 0xFFu, 60u + aw_rng % 40u); } else { tl = 0u; } }
           let aw_rng2 = hash(aw_rng ^ 0xaeed0002u);
-          if (ac2_tr == WATER && (aw_rng2 % 100u) < 4u) { tr = makeCell(STEAM, (aw_rng2 >> 8u) & 0xFFu, 60u + aw_rng2 % 40u); }
+          let aw_sc2 = hash(aw_rng2 ^ 0x5EA40002u);
+          if (ac2_tr == WATER && (aw_rng2 % 100u) < 4u) { if ((aw_sc2 % 100u) < 60u) { tr = makeCell(STEAM, (aw_rng2 >> 8u) & 0xFFu, 60u + aw_rng2 % 40u); } else { tr = 0u; } }
           let aw_rng3 = hash(aw_rng2 ^ 0xaeed0003u);
-          if (ac2_bl == WATER && (aw_rng3 % 100u) < 4u) { bl = makeCell(STEAM, (aw_rng3 >> 8u) & 0xFFu, 60u + aw_rng3 % 40u); }
+          let aw_sc3 = hash(aw_rng3 ^ 0x5EA40003u);
+          if (ac2_bl == WATER && (aw_rng3 % 100u) < 4u) { if ((aw_sc3 % 100u) < 60u) { bl = makeCell(STEAM, (aw_rng3 >> 8u) & 0xFFu, 60u + aw_rng3 % 40u); } else { bl = 0u; } }
           let aw_rng4 = hash(aw_rng3 ^ 0xaeed0004u);
-          if (ac2_br == WATER && (aw_rng4 % 100u) < 4u) { br = makeCell(STEAM, (aw_rng4 >> 8u) & 0xFFu, 60u + aw_rng4 % 40u); }
+          let aw_sc4 = hash(aw_rng4 ^ 0x5EA40004u);
+          if (ac2_br == WATER && (aw_rng4 % 100u) < 4u) { if ((aw_sc4 % 100u) < 60u) { br = makeCell(STEAM, (aw_rng4 >> 8u) & 0xFFu, 60u + aw_rng4 % 40u); } else { br = 0u; } }
           // Acid loses potency from water contact (1 per water cell, ~3%/pass)
           let aw_cost_rng = hash(aw_rng4 ^ 0xaeed0005u);
           if ((aw_cost_rng % 100u) < 3u) {
@@ -767,23 +779,27 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         }
       }
 
-      // Hot stone (>100) boils water (~1% per pass)
+      // Hot stone (>100) boils water (~1% per pass, 60% → steam, 40% → empty)
       if (max_heat > 100u) {
         let bx_rng = hash(fx_rng ^ 0x5011BEE0u);
+        let bx_sc1 = hash(bx_rng ^ 0x5EA40001u);
         if (hx_tl == WATER && (bx_rng % 100u) < 1u) {
-          tl = makeCell(STEAM, (bx_rng >> 8u) & 0xFFu, 120u + bx_rng % 80u);
+          if ((bx_sc1 % 100u) < 60u) { tl = makeCell(STEAM, (bx_rng >> 8u) & 0xFFu, 120u + bx_rng % 80u); } else { tl = 0u; }
         }
         let bx_rng2 = hash(bx_rng ^ 0xB011BEE1u);
+        let bx_sc2 = hash(bx_rng2 ^ 0x5EA40002u);
         if (hx_tr == WATER && (bx_rng2 % 100u) < 1u) {
-          tr = makeCell(STEAM, (bx_rng2 >> 8u) & 0xFFu, 120u + bx_rng2 % 80u);
+          if ((bx_sc2 % 100u) < 60u) { tr = makeCell(STEAM, (bx_rng2 >> 8u) & 0xFFu, 120u + bx_rng2 % 80u); } else { tr = 0u; }
         }
         let bx_rng3 = hash(bx_rng2 ^ 0xB011BEE2u);
+        let bx_sc3 = hash(bx_rng3 ^ 0x5EA40003u);
         if (hx_bl == WATER && (bx_rng3 % 100u) < 1u) {
-          bl = makeCell(STEAM, (bx_rng3 >> 8u) & 0xFFu, 120u + bx_rng3 % 80u);
+          if ((bx_sc3 % 100u) < 60u) { bl = makeCell(STEAM, (bx_rng3 >> 8u) & 0xFFu, 120u + bx_rng3 % 80u); } else { bl = 0u; }
         }
         let bx_rng4 = hash(bx_rng3 ^ 0xB011BEE3u);
+        let bx_sc4 = hash(bx_rng4 ^ 0x5EA40004u);
         if (hx_br == WATER && (bx_rng4 % 100u) < 1u) {
-          br = makeCell(STEAM, (bx_rng4 >> 8u) & 0xFFu, 120u + bx_rng4 % 80u);
+          if ((bx_sc4 % 100u) < 60u) { br = makeCell(STEAM, (bx_rng4 >> 8u) & 0xFFu, 120u + bx_rng4 % 80u); } else { br = 0u; }
         }
       }
     }
