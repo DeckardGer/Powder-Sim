@@ -138,9 +138,8 @@ export function useSimulation() {
       const pos = lastPosRef.current;
       if (!isDrawingRef.current || !pos) return;
       stamp(pos.x, pos.y);
-      flushCells();
     }, 1000 / 30); // 30 stamps per second while holding
-  }, [stamp, flushCells]);
+  }, [stamp]);
 
   const stopHoldInterval = useCallback(() => {
     if (holdIntervalRef.current) {
@@ -162,10 +161,9 @@ export function useSimulation() {
       const pos = canvasToGrid(e.clientX, e.clientY, canvas);
       lastPosRef.current = pos;
       stamp(pos.x, pos.y);
-      flushCells();
       startHoldInterval();
     },
-    [canvasToGrid, stamp, flushCells, startHoldInterval],
+    [canvasToGrid, stamp, startHoldInterval],
   );
 
   const onPointerMove = useCallback(
@@ -182,9 +180,8 @@ export function useSimulation() {
       }
 
       lastPosRef.current = pos;
-      flushCells();
     },
-    [canvasToGrid, bresenhamLine, stamp, flushCells],
+    [canvasToGrid, bresenhamLine, stamp],
   );
 
   const onPointerUp = useCallback(() => {
@@ -203,6 +200,7 @@ export function useSimulation() {
     setBrushSize,
     setBrushElement,
     clearSimulation,
+    flushCells,
     pointerHandlers: {
       onPointerDown,
       onPointerMove,

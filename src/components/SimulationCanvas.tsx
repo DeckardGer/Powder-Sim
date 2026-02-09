@@ -10,6 +10,7 @@ interface SimulationCanvasProps {
   gpuContext: GPUContext;
   onStatsUpdate?: (stats: SimulationStats) => void;
   onSimulationReady?: (simulation: PowderSimulation) => void;
+  onFlushCells?: () => void;
   pointerHandlers?: {
     onPointerDown: (e: React.PointerEvent<HTMLCanvasElement>) => void;
     onPointerMove: (e: React.PointerEvent<HTMLCanvasElement>) => void;
@@ -22,6 +23,7 @@ export function SimulationCanvas({
   gpuContext,
   onStatsUpdate,
   onSimulationReady,
+  onFlushCells,
   pointerHandlers,
 }: SimulationCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -90,29 +92,34 @@ export function SimulationCanvas({
           simAccumulatorRef.current.accumulator = 0;
         }
 
-        // Batch all sim steps + render into one command encoder
+        // Flush pending brush cells once before stepping, so all
+        // pointer events between frames are batched into one GPU write.
         if (simSteps > 0) {
-          const encoder = device.createCommandEncoder();
-          for (let i = 0; i < simSteps; i++) {
-            simulation.step(encoder);
-          }
-
-          const textureView = canvasContext.getCurrentTexture().createView();
-          renderer.render(
-            encoder,
-            textureView,
-            simulation.getCurrentBufferIndex(),
-          );
-
-          device.queue.submit([encoder.finish()]);
+          onFlushCells?.();
         }
+
+        // Always render (even on frames with no sim step) to avoid
+        // flickering on monitors faster than the 60Hz sim rate.
+        const encoder = device.createCommandEncoder();
+        for (let i = 0; i < simSteps; i++) {
+          simulation.step(encoder);
+        }
+
+        const textureView = canvasContext.getCurrentTexture().createView();
+        renderer.render(
+          encoder,
+          textureView,
+          simulation.getCurrentBufferIndex(),
+        );
+
+        device.queue.submit([encoder.finish()]);
 
         animFrameRef.current = requestAnimationFrame(loop);
       };
 
       animFrameRef.current = requestAnimationFrame(loop);
     },
-    [gpuContext, onStatsUpdate],
+    [gpuContext, onStatsUpdate, onFlushCells],
   );
 
   useEffect(() => {

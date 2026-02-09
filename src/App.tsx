@@ -23,6 +23,7 @@ function App() {
     setBrushSize,
     setBrushElement,
     clearSimulation,
+    flushCells,
     pointerHandlers,
   } = useSimulation();
 
@@ -106,6 +107,7 @@ function App() {
         onStatsUpdate={handleStatsUpdate}
         onSimulationReady={setSimulation}
         pointerHandlers={pointerHandlers}
+        onFlushCells={flushCells}
       />
       <Toolbar
         brush={brushState}
