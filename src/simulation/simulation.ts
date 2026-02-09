@@ -1,6 +1,7 @@
 import type { SimulationConfig } from "@/types";
 import { DEFAULT_CONFIG } from "@/types";
 import simulationShaderSource from "./shaders/simulation.wgsl?raw";
+import conditionalWriteShaderSource from "./shaders/conditional_write.wgsl?raw";
 
 const MARGOLUS_OFFSETS: [number, number][] = [
 	[0, 0],
@@ -26,6 +27,12 @@ export class PowderSimulation {
 	private stagingBuffer: GPUBuffer;
 	private cachedParticleCount = 0;
 	private readbackPending = false;
+
+	// Conditional write (brush → GPU, only overwrites empty cells)
+	private pendingWriteBuffer: GPUBuffer;
+	private conditionalWritePipeline: GPUComputePipeline;
+	private conditionalWriteBindGroup: GPUBindGroup;
+	private hasPendingWrites = false;
 
 	private frameCount = 0;
 	private cellCount: number;
@@ -58,6 +65,12 @@ export class PowderSimulation {
 		this.stagingBuffer = device.createBuffer({
 			size: bufferSize,
 			usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+		});
+
+		// Pending write buffer for conditional brush writes
+		this.pendingWriteBuffer = device.createBuffer({
+			size: bufferSize,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 		});
 
 		this.uniformBuffers = [];
@@ -108,6 +121,25 @@ export class PowderSimulation {
 			this.passBindGroups.push([bg0to1, bg1to0]);
 		}
 
+		// Conditional write pipeline (applies brush to empty cells only)
+		const conditionalWriteModule = device.createShaderModule({
+			code: conditionalWriteShaderSource,
+		});
+		this.conditionalWritePipeline = device.createComputePipeline({
+			layout: "auto",
+			compute: {
+				module: conditionalWriteModule,
+				entryPoint: "main",
+			},
+		});
+		this.conditionalWriteBindGroup = device.createBindGroup({
+			layout: this.conditionalWritePipeline.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: { buffer: this.buffers[0] } },
+				{ binding: 1, resource: { buffer: this.pendingWriteBuffer } },
+			],
+		});
+
 		this.clear();
 	}
 
@@ -118,6 +150,16 @@ export class PowderSimulation {
 	}
 
 	step(encoder: GPUCommandEncoder): void {
+		// Apply pending brush writes to buf0 before simulation
+		if (this.hasPendingWrites) {
+			const writePass = encoder.beginComputePass();
+			writePass.setPipeline(this.conditionalWritePipeline);
+			writePass.setBindGroup(0, this.conditionalWriteBindGroup);
+			writePass.dispatchWorkgroups(Math.ceil(this.cellCount / 256));
+			writePass.end();
+			this.hasPendingWrites = false;
+		}
+
 		const workgroupsX = Math.ceil(
 			this.config.width / 2 / this.config.workgroupSize,
 		);
@@ -208,16 +250,19 @@ export class PowderSimulation {
 			if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height)
 				continue;
 			const offset = (y * this.config.width + x) * 4;
-			const cellData = new Uint32Array([value]);
-			this.device.queue.writeBuffer(this.buffers[0], offset, cellData);
-			this.device.queue.writeBuffer(this.buffers[1], offset, cellData);
+			// Bit 31 = "write pending" flag; shader strips it before applying
+			const cellData = new Uint32Array([value | 0x80000000]);
+			this.device.queue.writeBuffer(this.pendingWriteBuffer, offset, cellData);
 		}
+		this.hasPendingWrites = true;
 	}
 
 	clear(): void {
 		const zeros = new Uint32Array(this.cellCount);
 		this.device.queue.writeBuffer(this.buffers[0], 0, zeros);
 		this.device.queue.writeBuffer(this.buffers[1], 0, zeros);
+		this.device.queue.writeBuffer(this.pendingWriteBuffer, 0, zeros);
+		this.hasPendingWrites = false;
 		this.cachedParticleCount = 0;
 		this.frameCount = 0;
 	}
@@ -250,6 +295,7 @@ export class PowderSimulation {
 		this.buffers[0].destroy();
 		this.buffers[1].destroy();
 		this.stagingBuffer.destroy();
+		this.pendingWriteBuffer.destroy();
 		for (const ub of this.uniformBuffers) {
 			ub.destroy();
 		}
