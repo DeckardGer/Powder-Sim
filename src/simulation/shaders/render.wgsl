@@ -38,6 +38,7 @@ const OIL: u32 = 9u;
 const LAVA: u32 = 10u;
 const ACID: u32 = 11u;
 const GUNPOWDER: u32 = 12u;
+const BOMB: u32 = 13u;
 
 struct RenderParams {
   width: u32,
@@ -224,6 +225,18 @@ fn gunpowderColor(variation: f32) -> vec3f {
   return mix(base, light, (t - 0.5) * 2.0);
 }
 
+fn bombColor(variation: f32) -> vec3f {
+  // Dark iron/steel with subtle red danger tint
+  let base = vec3f(0.28, 0.18, 0.16);
+  let dark = vec3f(0.18, 0.10, 0.09);
+  let light = vec3f(0.38, 0.24, 0.20);
+  let t = variation;
+  if (t < 0.5) {
+    return mix(dark, base, t * 2.0);
+  }
+  return mix(base, light, (t - 0.5) * 2.0);
+}
+
 @fragment
 fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let px = u32(uv.x * f32(params.width));
@@ -277,6 +290,9 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
     }
     case GUNPOWDER: {
       color = gunpowderColor(colorVar);
+    }
+    case BOMB: {
+      color = bombColor(colorVar);
     }
     default: {
       // Empty: near-black with subtle grid pattern
