@@ -1,73 +1,98 @@
-# React + TypeScript + Vite
+# Powder-Sim
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A WebGPU-accelerated falling sand simulator built with React and TypeScript. Uses Margolus neighborhood cellular automata running entirely on the GPU via compute shaders.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **GPU compute simulation** — 24 Margolus CA passes per frame on a 512x512 grid
+- **Density-based physics** — sand, water, and stone interact through density comparisons
+- **Sand-water interactions** — drag, diagonal dispersion, underwater smoothing, and erosion
+- **Ping-pong double buffering** — two storage buffers alternate to avoid read-write hazards
+- **Circular brush** — hold-to-draw at 30Hz with Bresenham line interpolation
+- **Conditional writes** — GPU-side shader prevents overwriting existing particles
+- **Async particle counting** — staging buffer readback without blocking the render loop
 
-## React Compiler
+## Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Vite 7 + React 19 + TypeScript 5.9
+- Tailwind CSS v4 + shadcn/ui
+- WebGPU compute shaders (WGSL)
+- JetBrains Mono font
 
-## Expanding the ESLint configuration
+## Getting Started
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm install
+pnpm dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Requires a browser with WebGPU support (Chrome 113+, Edge 113+, Safari 18+, Firefox Nightly).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Scripts
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Command | Description |
+| --- | --- |
+| `pnpm dev` | Start dev server |
+| `pnpm build` | Type-check and build for production |
+| `pnpm preview` | Preview production build |
+| `pnpm lint` | Run ESLint |
+
+## Architecture
+
 ```
+User Input (Pointer Events)
+  -> canvasToGrid() + Bresenham stamp (CPU)
+  -> Pending cells written to GPU buffer
+  -> Conditional write compute pass (only writes to empty cells)
+  -> 12 gravity passes + 12 lateral passes (Margolus CA)
+  -> Fullscreen triangle render pass (cell -> color)
+  -> Canvas
+```
+
+### Key Files
+
+| File | Purpose |
+| --- | --- |
+| `src/simulation/simulation.ts` | PowderSimulation class — buffers, compute passes, readback |
+| `src/simulation/renderer.ts` | SimulationRenderer — fullscreen triangle render pipeline |
+| `src/simulation/gpu.ts` | WebGPU adapter/device initialization |
+| `src/simulation/shaders/simulation.wgsl` | Margolus CA compute shader |
+| `src/simulation/shaders/render.wgsl` | Cell-to-color fragment shader |
+| `src/simulation/shaders/conditional_write.wgsl` | Brush write pipeline |
+| `src/hooks/useSimulation.ts` | Brush input, Bresenham drawing, hold-to-draw |
+| `src/hooks/useWebGPU.ts` | GPU state management hook |
+| `src/types/index.ts` | Element types, configs, interfaces |
+
+### Simulation Engine
+
+The simulation uses a **Margolus neighborhood** cellular automaton. The grid is divided into non-overlapping 2x2 blocks, and each GPU thread processes one block. Four possible block offsets are shuffled per sweep to eliminate directional bias.
+
+**Cell encoding** (32-bit `u32`):
+- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3)
+- Bits 8-15: per-particle color variation
+- Bits 16-31: reserved
+
+**Physics phases per frame:**
+1. **Gravity** (12 passes) — vertical drops by density, diagonal slides, sand-water drag
+2. **Lateral** (24 passes) — water leveling, underwater sand smoothing, erosion
+
+## Controls
+
+| Input | Action |
+| --- | --- |
+| Click / drag | Draw with selected element |
+| Hold | Continuous stamping at 30Hz |
+| `+` / `-` | Increase / decrease brush size |
+| `C` | Clear the grid |
+| `ESC` | Return to title screen |
+
+## Browser Support
+
+WebGPU is required. The app shows a fallback screen if WebGPU is unavailable.
+
+| Browser | Minimum Version |
+| --- | --- |
+| Chrome | 113+ |
+| Edge | 113+ |
+| Safari | 18+ |
+| Firefox | Nightly (behind flag) |
