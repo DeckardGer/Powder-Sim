@@ -1,11 +1,25 @@
-import { useState } from "react";
-import type { AppScreen } from "@/types";
+import { useState, useCallback } from "react";
+import type { AppScreen, SimulationStats } from "@/types";
 import { useWebGPU } from "@/hooks/useWebGPU";
+import { useSimulation } from "@/hooks/useSimulation";
 import { GPUFallback } from "@/components/GPUFallback";
+import { TitleScreen } from "@/components/TitleScreen";
+import { SimulationCanvas } from "@/components/SimulationCanvas";
 
 function App() {
   const gpu = useWebGPU();
-  const [_screen, _setScreen] = useState<AppScreen>("title");
+  const [screen, setScreen] = useState<AppScreen>("title");
+  const [_stats, setStats] = useState<SimulationStats>({
+    fps: 0,
+    particleCount: 0,
+    frameCount: 0,
+  });
+
+  const { setSimulation, pointerHandlers } = useSimulation();
+
+  const handleStatsUpdate = useCallback((stats: SimulationStats) => {
+    setStats(stats);
+  }, []);
 
   if (gpu.status === "loading") {
     return (
@@ -21,13 +35,18 @@ function App() {
     return <GPUFallback error={gpu.error} />;
   }
 
+  if (screen === "title") {
+    return <TitleScreen onPlay={() => setScreen("simulation")} />;
+  }
+
   return (
-    <div className="h-screen w-screen bg-background text-foreground">
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
-          GPU READY
-        </p>
-      </div>
+    <div className="relative h-screen w-screen bg-background">
+      <SimulationCanvas
+        gpuContext={gpu.context}
+        onStatsUpdate={handleStatsUpdate}
+        onSimulationReady={setSimulation}
+        pointerHandlers={pointerHandlers}
+      />
     </div>
   );
 }
