@@ -50,14 +50,14 @@ writeBuffer (uniforms x24) -> commandEncoder -> conditional write pass -> 24 com
 
 ### Cell Encoding (u32)
 
-- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7, Smoke=8, Oil=9, Lava=10)
+- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7, Smoke=8, Oil=9, Lava=10, Acid=11)
 - Bits 8-15: per-particle color variation
 - Bits 16-23: lifetime (fire/steam/smoke) or heat level (stone/lava)
 - Bits 24-31: reserved
 
 ### Elements & Density
 
-Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Lava=7, Wood=9, Sand=10, Glass=200, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, and Stone are immovable solids. Lava is a viscous movable liquid (50% gravity drag, 30% lateral spread).
+Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Sand=10, Glass=200, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, and Stone are immovable solids. Lava is a viscous movable liquid (50% gravity drag, 30% lateral spread). Acid is a corrosive liquid (no viscosity drag).
 
 ## Critical Bugs (don't regress)
 
@@ -95,6 +95,15 @@ Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Lava=7, Wood=9, Sand=10, Glas
 - **Lava + Sand → Glass**: ~4%/pass. Lava loses 3 heat per sand in block.
 - **Lava + Wood**: wood ignites at ~8%/pass → fire. Much faster than fire+wood.
 - **Lava + Oil**: oil ignites at ~20%/pass → fire.
+- **Acid + Sand**: dissolves at ~5%/pass → smoke. Acid loses 3 potency/sand.
+- **Acid + Stone**: dissolves at ~2%/pass → smoke. Acid loses 5 potency/stone.
+- **Acid + Wood**: dissolves at ~8%/pass → smoke. Acid loses 2 potency/wood.
+- **Acid + Glass**: dissolves at ~1%/pass → smoke. Acid loses 8 potency/glass.
+- **Acid + Oil**: dissolves at ~10%/pass → smoke. Acid loses 2 potency/oil.
+- **Acid + Water**: water dissolves ~4%/pass → steam. Acid also loses 1 potency ~3%/pass (dilution).
+- **Acid + Fire**: acid evaporates ~10%/pass → smoke. Fire unaffected.
+- **Acid + Lava**: acid evaporates ~15%/pass → smoke. Lava unaffected.
+- **Acid aging**: ~0.8%/pass passive potency decay. Spawns at 180-240, dies at 0.
 - **Lava cooling**: ~0.6%/pass passive heat decay. Spawns at heat 180-239, solidifies to stone at 0 (~23 sec).
 - **Stone heat**: fire/lava adds 2-3 heat/pass. Decays ~0.8%/pass. Conducts between adjacent stone (1 unit/pass).
   - heat > 100: boils water → steam (1%/pass)

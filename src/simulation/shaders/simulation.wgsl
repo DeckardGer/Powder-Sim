@@ -19,6 +19,7 @@ const GLASS: u32 = 7u;
 const SMOKE: u32 = 8u;
 const OIL: u32 = 9u;
 const LAVA: u32 = 10u;
+const ACID: u32 = 11u;
 
 // Density: fire/steam < empty so they rise via existing gravity logic.
 // The key insight from diving-beet/falling-turnip: gases lighter than empty
@@ -58,6 +59,7 @@ fn getDensity(element: u32) -> u32 {
     case EMPTY: { return EMPTY_DENSITY; }
     case OIL:   { return 4u; }
     case WATER: { return 5u; }
+    case ACID:  { return 6u; }
     case LAVA:  { return 7u; }
     case WOOD:  { return 9u; }
     case SAND:  { return 10u; }
@@ -146,6 +148,19 @@ fn ageCell(cell: u32, rng: u32) -> u32 {
     let should_cool = (rng % 166u) == 0u;
     if (should_cool) {
       return setLifetime(cell, heat - 1u);
+    }
+    return cell;
+  }
+
+  if (element == ACID) {
+    let potency = getLifetime(cell);
+    if (potency == 0u) { return 0u; } // spent acid → empty
+    // ~0.8% passive potency decay per pass
+    let should_decay = (rng & 127u) == 0u;
+    if (should_decay) {
+      let new_p = potency - 1u;
+      if (new_p == 0u) { return 0u; }
+      return setLifetime(cell, new_p);
     }
     return cell;
   }
@@ -492,6 +507,131 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
 
+  // === ALCHEMY: acid dissolves materials ===
+  // Acid corrodes sand, stone, wood, glass, oil on contact. Loses potency per reaction.
+  // Water dilutes acid. Fire/lava evaporate acid into smoke.
+  {
+    let ac_tl = getElement(tl);
+    let ac_tr = getElement(tr);
+    let ac_bl = getElement(bl);
+    let ac_br = getElement(br);
+
+    let has_acid = (ac_tl == ACID || ac_tr == ACID || ac_bl == ACID || ac_br == ACID);
+
+    if (has_acid) {
+      let ac_rng = hash(rng1 ^ 0xac1d0001u);
+
+      // --- Acid + Fire: acid evaporates (~10%/pass) → smoke ---
+      let has_fire_ac = (ac_tl == FIRE || ac_tr == FIRE || ac_bl == FIRE || ac_br == FIRE);
+      if (has_fire_ac) {
+        let af_rng = hash(ac_rng ^ 0xaf1e0001u);
+        if (ac_tl == ACID && (af_rng % 100u) < 10u) { tl = makeCell(SMOKE, (af_rng >> 8u) & 0xFFu, 40u + af_rng % 30u); }
+        let af_rng2 = hash(af_rng ^ 0xaf1e0002u);
+        if (ac_tr == ACID && (af_rng2 % 100u) < 10u) { tr = makeCell(SMOKE, (af_rng2 >> 8u) & 0xFFu, 40u + af_rng2 % 30u); }
+        let af_rng3 = hash(af_rng2 ^ 0xaf1e0003u);
+        if (ac_bl == ACID && (af_rng3 % 100u) < 10u) { bl = makeCell(SMOKE, (af_rng3 >> 8u) & 0xFFu, 40u + af_rng3 % 30u); }
+        let af_rng4 = hash(af_rng3 ^ 0xaf1e0004u);
+        if (ac_br == ACID && (af_rng4 % 100u) < 10u) { br = makeCell(SMOKE, (af_rng4 >> 8u) & 0xFFu, 40u + af_rng4 % 30u); }
+      }
+
+      // --- Acid + Lava: acid evaporates (~15%/pass) → smoke ---
+      let has_lava_ac = (ac_tl == LAVA || ac_tr == LAVA || ac_bl == LAVA || ac_br == LAVA);
+      if (has_lava_ac) {
+        let al_rng = hash(ac_rng ^ 0xa1a00001u);
+        if (ac_tl == ACID && (al_rng % 100u) < 15u) { tl = makeCell(SMOKE, (al_rng >> 8u) & 0xFFu, 40u + al_rng % 30u); }
+        let al_rng2 = hash(al_rng ^ 0xa1a00002u);
+        if (ac_tr == ACID && (al_rng2 % 100u) < 15u) { tr = makeCell(SMOKE, (al_rng2 >> 8u) & 0xFFu, 40u + al_rng2 % 30u); }
+        let al_rng3 = hash(al_rng2 ^ 0xa1a00003u);
+        if (ac_bl == ACID && (al_rng3 % 100u) < 15u) { bl = makeCell(SMOKE, (al_rng3 >> 8u) & 0xFFu, 40u + al_rng3 % 30u); }
+        let al_rng4 = hash(al_rng3 ^ 0xa1a00004u);
+        if (ac_br == ACID && (al_rng4 % 100u) < 15u) { br = makeCell(SMOKE, (al_rng4 >> 8u) & 0xFFu, 40u + al_rng4 % 30u); }
+      }
+
+      // Re-read after fire/lava evaporation (acid cells may have become smoke)
+      let ac2_tl = getElement(tl);
+      let ac2_tr = getElement(tr);
+      let ac2_bl = getElement(bl);
+      let ac2_br = getElement(br);
+      let has_acid2 = (ac2_tl == ACID || ac2_tr == ACID || ac2_bl == ACID || ac2_br == ACID);
+
+      if (has_acid2) {
+        // --- Acid + Water: acid dissolves water (~4%/pass) → steam, acid loses 1 potency ---
+        let has_water_ac = (ac2_tl == WATER || ac2_tr == WATER || ac2_bl == WATER || ac2_br == WATER);
+        if (has_water_ac) {
+          let aw_rng = hash(ac_rng ^ 0xaeed0001u);
+          if (ac2_tl == WATER && (aw_rng % 100u) < 4u) { tl = makeCell(STEAM, (aw_rng >> 8u) & 0xFFu, 60u + aw_rng % 40u); }
+          let aw_rng2 = hash(aw_rng ^ 0xaeed0002u);
+          if (ac2_tr == WATER && (aw_rng2 % 100u) < 4u) { tr = makeCell(STEAM, (aw_rng2 >> 8u) & 0xFFu, 60u + aw_rng2 % 40u); }
+          let aw_rng3 = hash(aw_rng2 ^ 0xaeed0003u);
+          if (ac2_bl == WATER && (aw_rng3 % 100u) < 4u) { bl = makeCell(STEAM, (aw_rng3 >> 8u) & 0xFFu, 60u + aw_rng3 % 40u); }
+          let aw_rng4 = hash(aw_rng3 ^ 0xaeed0004u);
+          if (ac2_br == WATER && (aw_rng4 % 100u) < 4u) { br = makeCell(STEAM, (aw_rng4 >> 8u) & 0xFFu, 60u + aw_rng4 % 40u); }
+          // Acid loses potency from water contact (1 per water cell, ~3%/pass)
+          let aw_cost_rng = hash(aw_rng4 ^ 0xaeed0005u);
+          if ((aw_cost_rng % 100u) < 3u) {
+            if (ac2_tl == ACID) { let p = getLifetime(tl); if (p > 1u) { tl = setLifetime(tl, p - 1u); } else { tl = 0u; } }
+            if (ac2_tr == ACID) { let p = getLifetime(tr); if (p > 1u) { tr = setLifetime(tr, p - 1u); } else { tr = 0u; } }
+            if (ac2_bl == ACID) { let p = getLifetime(bl); if (p > 1u) { bl = setLifetime(bl, p - 1u); } else { bl = 0u; } }
+            if (ac2_br == ACID) { let p = getLifetime(br); if (p > 1u) { br = setLifetime(br, p - 1u); } else { br = 0u; } }
+          }
+        }
+
+        // --- Acid dissolves solids/liquids: sand, stone, wood, glass, oil ---
+        // Each dissolved cell → empty + chance of smoke. Acid loses potency.
+        let ad_rng = hash(ac_rng ^ 0xd150001u);
+
+        // Helper: count acid cells for potency cost distribution
+        let acid_count = u32(ac2_tl == ACID) + u32(ac2_tr == ACID) + u32(ac2_bl == ACID) + u32(ac2_br == ACID);
+
+        // Process each non-acid cell: check if acid dissolves it
+        var dissolved = 0u; // track total potency cost this block
+        var cost_per: u32;
+
+        // --- Dissolve TL ---
+        let d_rng1 = hash(ad_rng ^ 0xd1550001u);
+        if (ac2_tl == SAND && (d_rng1 % 100u) < 5u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 3u; }
+        else if (ac2_tl == STONE && (d_rng1 % 100u) < 2u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 5u; }
+        else if (ac2_tl == WOOD && (d_rng1 % 100u) < 8u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 2u; }
+        else if (ac2_tl == GLASS && (d_rng1 % 100u) < 1u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 8u; }
+        else if (ac2_tl == OIL && (d_rng1 % 100u) < 10u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 2u; }
+
+        // --- Dissolve TR ---
+        let d_rng2 = hash(ad_rng ^ 0xd1550002u);
+        if (ac2_tr == SAND && (d_rng2 % 100u) < 5u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 3u; }
+        else if (ac2_tr == STONE && (d_rng2 % 100u) < 2u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 5u; }
+        else if (ac2_tr == WOOD && (d_rng2 % 100u) < 8u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 2u; }
+        else if (ac2_tr == GLASS && (d_rng2 % 100u) < 1u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 8u; }
+        else if (ac2_tr == OIL && (d_rng2 % 100u) < 10u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 2u; }
+
+        // --- Dissolve BL ---
+        let d_rng3 = hash(ad_rng ^ 0xd1550003u);
+        if (ac2_bl == SAND && (d_rng3 % 100u) < 5u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 3u; }
+        else if (ac2_bl == STONE && (d_rng3 % 100u) < 2u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 5u; }
+        else if (ac2_bl == WOOD && (d_rng3 % 100u) < 8u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 2u; }
+        else if (ac2_bl == GLASS && (d_rng3 % 100u) < 1u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 8u; }
+        else if (ac2_bl == OIL && (d_rng3 % 100u) < 10u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 2u; }
+
+        // --- Dissolve BR ---
+        let d_rng4 = hash(ad_rng ^ 0xd1550004u);
+        if (ac2_br == SAND && (d_rng4 % 100u) < 5u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 3u; }
+        else if (ac2_br == STONE && (d_rng4 % 100u) < 2u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 5u; }
+        else if (ac2_br == WOOD && (d_rng4 % 100u) < 8u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 2u; }
+        else if (ac2_br == GLASS && (d_rng4 % 100u) < 1u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 8u; }
+        else if (ac2_br == OIL && (d_rng4 % 100u) < 10u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 2u; }
+
+        // Deduct potency from acid cells (split cost across acid cells in block)
+        if (dissolved > 0u && acid_count > 0u) {
+          cost_per = dissolved / acid_count;
+          if (cost_per == 0u) { cost_per = 1u; }
+          if (ac2_tl == ACID) { let p = getLifetime(tl); if (p > cost_per) { tl = setLifetime(tl, p - cost_per); } else { tl = 0u; } }
+          if (ac2_tr == ACID) { let p = getLifetime(tr); if (p > cost_per) { tr = setLifetime(tr, p - cost_per); } else { tr = 0u; } }
+          if (ac2_bl == ACID) { let p = getLifetime(bl); if (p > cost_per) { bl = setLifetime(bl, p - cost_per); } else { bl = 0u; } }
+          if (ac2_br == ACID) { let p = getLifetime(br); if (p > cost_per) { br = setLifetime(br, p - cost_per); } else { br = 0u; } }
+        }
+      }
+    }
+  }
+
   // === STONE HEAT: accumulation, decay, and transfer ===
   // Stone uses bits 16-23 as heat level (0-255). Fire heats adjacent stone,
   // hot stone conducts heat and affects neighbors (ignites wood, melts sand, boils water).
@@ -665,8 +805,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // Sand-liquid drag: gates ALL sand movement through water/oil/lava (vertical + diagonal).
     // Without this, sand bypasses vertical drag via the diagonal dispersion path.
     let sand_liquid_move = (rng1 % 100u) < 35u; // 35% chance to move through liquid
-    let sw_l = (etl == SAND && (ebl == WATER || ebl == OIL || ebl == LAVA)) || ((etl == WATER || etl == OIL || etl == LAVA) && ebl == SAND);
-    let sw_r = (etr == SAND && (ebr == WATER || ebr == OIL || ebr == LAVA)) || ((etr == WATER || etr == OIL || etr == LAVA) && ebr == SAND);
+    let sw_l = (etl == SAND && (ebl == WATER || ebl == OIL || ebl == LAVA || ebl == ACID)) || ((etl == WATER || etl == OIL || etl == LAVA || etl == ACID) && ebl == SAND);
+    let sw_r = (etr == SAND && (ebr == WATER || ebr == OIL || ebr == LAVA || ebr == ACID)) || ((etr == WATER || etr == OIL || etr == LAVA || etr == ACID) && ebr == SAND);
 
     // Lava viscosity drag: lava moves at ~50% speed (sluggish liquid)
     let lava_move = (rng1 % 100u) < 50u;
@@ -715,12 +855,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       // This fires when drag allowed movement and the vertical drop was
       // skipped, letting sand fan out sideways as it sinks through water.
       let sand_disp = ((rng1 >> 12u) & 1u) == 0u; // 50%
-      let tl_liquid_disp = etl == SAND && (ebr == WATER || ebr == OIL || ebr == LAVA) && d_tl > d_br && sand_disp && sand_liquid_move;
-      let tr_liquid_disp = etr == SAND && (ebl == WATER || ebl == OIL || ebl == LAVA) && d_tr > d_bl && sand_disp && sand_liquid_move;
+      let tl_liquid_disp = etl == SAND && (ebr == WATER || ebr == OIL || ebr == LAVA || ebr == ACID) && d_tl > d_br && sand_disp && sand_liquid_move;
+      let tr_liquid_disp = etr == SAND && (ebl == WATER || ebl == OIL || ebl == LAVA || ebl == ACID) && d_tr > d_bl && sand_disp && sand_liquid_move;
 
       // Gate standard diagonal slides into liquid by the same drag
-      let tl_sand_liquid = etl == SAND && (ebr == WATER || ebr == OIL || ebr == LAVA);
-      let tr_sand_liquid = etr == SAND && (ebl == WATER || ebl == OIL || ebl == LAVA);
+      let tl_sand_liquid = etl == SAND && (ebr == WATER || ebr == OIL || ebr == LAVA || ebr == ACID);
+      let tr_sand_liquid = etr == SAND && (ebl == WATER || ebl == OIL || ebl == LAVA || ebl == ACID);
       let tl_slide_raw = (tl_slide_base && (etl != WATER || (d_tr < d_tl && water_diag))) || tl_liquid_disp;
       let tr_slide_raw = (tr_slide_base && (etr != WATER || (d_tl < d_tr && water_diag))) || tr_liquid_disp;
       let tl_lava_slide = etl == LAVA;
@@ -841,6 +981,28 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       }
     }
 
+    // Acid lateral spread: same diving-beet rules as water (no viscosity drag).
+    {
+      let ad_tl = getElement(tl);
+      let ad_tr = getElement(tr);
+      let ad_bl = getElement(bl);
+      let ad_br = getElement(br);
+
+      // Bottom row: one acid + one empty → swap if top row fully occupied
+      if ((ad_bl == ACID && ad_br == EMPTY) || (ad_br == ACID && ad_bl == EMPTY)) {
+        if (ad_tl != EMPTY && ad_tr != EMPTY) {
+          let tmp = bl; bl = br; br = tmp;
+        }
+      }
+
+      // Top row: one acid + one empty → swap if bottom row fully occupied
+      if ((ad_tl == ACID && ad_tr == EMPTY) || (ad_tr == ACID && ad_tl == EMPTY)) {
+        if (ad_bl != EMPTY && ad_br != EMPTY) {
+          let tmp = tl; tl = tr; tr = tmp;
+        }
+      }
+    }
+
     // Steam lateral spread: looser than water — steam disperses freely.
     // Against a surface (other row occupied): always spread.
     // Free-floating: ~12% chance to spread anyway, breaking hard walls.
@@ -902,10 +1064,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       let smooth_rng = hash(rng0 ^ 0x12345678u);
       let should_smooth = (smooth_rng & 31u) == 0u; // ~3% per pass
       if (should_smooth) {
-        let s_tl_liq = s_tl == WATER || s_tl == OIL || s_tl == LAVA;
-        let s_tr_liq = s_tr == WATER || s_tr == OIL || s_tr == LAVA;
-        let s_bl_liq = s_bl == WATER || s_bl == OIL || s_bl == LAVA;
-        let s_br_liq = s_br == WATER || s_br == OIL || s_br == LAVA;
+        let s_tl_liq = s_tl == WATER || s_tl == OIL || s_tl == LAVA || s_tl == ACID;
+        let s_tr_liq = s_tr == WATER || s_tr == OIL || s_tr == LAVA || s_tr == ACID;
+        let s_bl_liq = s_bl == WATER || s_bl == OIL || s_bl == LAVA || s_bl == ACID;
+        let s_br_liq = s_br == WATER || s_br == OIL || s_br == LAVA || s_br == ACID;
         if (s_bl == SAND && s_br_liq && s_tl_liq) {
           let tmp = bl; bl = br; br = tmp;
         } else if (s_br == SAND && s_bl_liq && s_tr_liq) {

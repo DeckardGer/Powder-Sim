@@ -36,6 +36,7 @@ const GLASS: u32 = 7u;
 const SMOKE: u32 = 8u;
 const OIL: u32 = 9u;
 const LAVA: u32 = 10u;
+const ACID: u32 = 11u;
 
 struct RenderParams {
   width: u32,
@@ -169,6 +170,28 @@ fn lavaColor(variation: f32, heat: f32) -> vec3f {
   return clamp(color, vec3f(0.0), vec3f(1.0));
 }
 
+fn acidColor(variation: f32, potency: f32) -> vec3f {
+  // Normalize potency: spawns at 180-240, decays to 0
+  let t = clamp(potency / 240.0, 0.0, 1.0);
+  // Spent (dark murky) → mid (olive green) → potent (bright neon green)
+  let spent = vec3f(0.08, 0.12, 0.04);
+  let mid = vec3f(0.2, 0.5, 0.1);
+  let potent = vec3f(0.3, 0.95, 0.15);
+  let bright = vec3f(0.5, 1.0, 0.3);
+  var color: vec3f;
+  if (t < 0.3) {
+    color = mix(spent, mid, t / 0.3);
+  } else if (t < 0.7) {
+    color = mix(mid, potent, (t - 0.3) / 0.4);
+  } else {
+    color = mix(potent, bright, (t - 0.7) / 0.3);
+  }
+  // Tight liquid shimmer
+  let shimmer = (variation - 0.5) * 0.06;
+  color += vec3f(shimmer * 0.3, shimmer, shimmer * 0.2);
+  return clamp(color, vec3f(0.0), vec3f(1.0));
+}
+
 fn oilColor(variation: f32) -> vec3f {
   let base = vec3f(0.12, 0.08, 0.03);
   // Tight variation — smooth dark liquid with faint amber shift
@@ -235,6 +258,9 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
     }
     case LAVA: {
       color = lavaColor(colorVar, lifetime);
+    }
+    case ACID: {
+      color = acidColor(colorVar, lifetime);
     }
     default: {
       // Empty: near-black with subtle grid pattern
