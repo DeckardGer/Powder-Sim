@@ -245,15 +245,37 @@ export class PowderSimulation {
   writeCells(cells: { x: number; y: number; value: number }[]): void {
     if (cells.length === 0) return;
 
+    // Find bounding box to minimize the write region
+    let minY = this.config.height;
+    let maxY = 0;
+    for (let i = 0; i < cells.length; i++) {
+      const { x, y } = cells[i];
+      if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height)
+        continue;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    if (minY > maxY) return;
+
+    // Build a contiguous typed array spanning the affected rows
+    const rowSpan = maxY - minY + 1;
+    const sliceLen = rowSpan * this.config.width;
+    const slice = new Uint32Array(sliceLen);
+
     for (let i = 0; i < cells.length; i++) {
       const { x, y, value } = cells[i];
       if (x < 0 || x >= this.config.width || y < 0 || y >= this.config.height)
         continue;
-      const offset = (y * this.config.width + x) * 4;
       // Bit 31 = "write pending" flag; shader strips it before applying
-      const cellData = new Uint32Array([value | 0x80000000]);
-      this.device.queue.writeBuffer(this.pendingWriteBuffer, offset, cellData);
+      slice[(y - minY) * this.config.width + x] = value | 0x80000000;
     }
+
+    const byteOffset = minY * this.config.width * 4;
+    this.device.queue.writeBuffer(
+      this.pendingWriteBuffer,
+      byteOffset,
+      slice,
+    );
     this.hasPendingWrites = true;
   }
 
