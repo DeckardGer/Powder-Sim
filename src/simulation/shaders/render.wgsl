@@ -34,6 +34,7 @@ const STEAM: u32 = 5u;
 const WOOD: u32 = 6u;
 const GLASS: u32 = 7u;
 const SMOKE: u32 = 8u;
+const OIL: u32 = 9u;
 
 struct RenderParams {
   width: u32,
@@ -142,6 +143,18 @@ fn glassColor(variation: f32) -> vec3f {
   return clamp(color + vec3f(sparkle), vec3f(0.0), vec3f(1.0));
 }
 
+fn oilColor(variation: f32) -> vec3f {
+  // Dark amber/brown-black crude oil palette
+  let base = vec3f(0.15, 0.1, 0.04);
+  let dark = vec3f(0.08, 0.05, 0.02);
+  let amber = vec3f(0.25, 0.15, 0.05);
+  let t = variation;
+  if (t < 0.5) {
+    return mix(dark, base, t * 2.0);
+  }
+  return mix(base, amber, (t - 0.5) * 2.0);
+}
+
 fn steamColor(variation: f32, lifetime: f32) -> vec3f {
   // Normalize: spawns at ~150-250, so /200 gives ~0.75-1.25 (clamped)
   let t = clamp(lifetime / 200.0, 0.0, 1.0);
@@ -195,6 +208,9 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
     }
     case SMOKE: {
       color = smokeColor(colorVar, lifetime);
+    }
+    case OIL: {
+      color = oilColor(colorVar);
     }
     default: {
       // Empty: near-black with subtle grid pattern

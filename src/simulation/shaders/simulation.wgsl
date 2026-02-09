@@ -17,6 +17,7 @@ const STEAM: u32 = 5u;
 const WOOD: u32 = 6u;
 const GLASS: u32 = 7u;
 const SMOKE: u32 = 8u;
+const OIL: u32 = 9u;
 
 // Density: fire/steam < empty so they rise via existing gravity logic.
 // The key insight from diving-beet/falling-turnip: gases lighter than empty
@@ -44,12 +45,17 @@ fn getLifetime(cell: u32) -> u32 {
   return (cell >> LIFETIME_SHIFT) & LIFETIME_MASK;
 }
 
+fn isImmovable(element: u32) -> bool {
+  return element == STONE || element == WOOD || element == GLASS;
+}
+
 fn getDensity(element: u32) -> u32 {
   switch(element) {
     case FIRE:  { return 0u; }
     case SMOKE: { return 1u; }
     case STEAM: { return 1u; }
     case EMPTY: { return EMPTY_DENSITY; }
+    case OIL:   { return 4u; }
     case WATER: { return 5u; }
     case WOOD:  { return 9u; }
     case SAND:  { return 10u; }
@@ -76,13 +82,13 @@ fn ageCell(cell: u32, rng: u32) -> u32 {
   if (element == FIRE) {
     let lifetime = getLifetime(cell);
     if (lifetime == 0u) { return 0u; }
-    // ~3% chance to age per pass (24 passes * 3% ~ 0.7 age/frame)
-    let should_age = (rng & 31u) == 0u;
+    // ~1.5% chance to age per pass (24 passes * 1.5% ~ 0.36 age/frame)
+    let should_age = (rng & 63u) == 0u;
     if (should_age) {
       let new_lt = lifetime - 1u;
       if (new_lt == 0u) {
         // Fire dies: 50% chance → smoke, 50% → empty
-        if (((rng >> 5u) & 1u) == 1u) {
+        if (((rng >> 7u) & 1u) == 1u) {
           let smoke_cv = (rng >> 8u) & 0xFFu;
           return makeCell(SMOKE, smoke_cv, 60u + ((rng >> 16u) % 40u));
         }
@@ -281,6 +287,46 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         br = makeCell(FIRE, (rng_w4 >> 8u) & 0xFFu, 100u + rng_w4 % 60u);
       } else if (w_br == EMPTY && (rng_w4 & 63u) == 0u) {
         br = makeCell(SMOKE, (rng_w4 >> 8u) & 0xFFu, 40u + rng_w4 % 30u);
+      }
+    }
+  }
+
+  // === ALCHEMY: fire + oil → oil ignites + smoke ===
+  // Oil in the same 2x2 block as fire catches fire easily (~15% per pass).
+  // Fire is unaffected. Empty cells in the block emit smoke (combustion byproduct).
+  {
+    let o_tl = getElement(tl);
+    let o_tr = getElement(tr);
+    let o_bl = getElement(bl);
+    let o_br = getElement(br);
+
+    let has_fire_o = (o_tl == FIRE || o_tr == FIRE || o_bl == FIRE || o_br == FIRE);
+    let has_oil = (o_tl == OIL || o_tr == OIL || o_bl == OIL || o_br == OIL);
+
+    if (has_fire_o && has_oil) {
+      let rng_o = hash(rng1 ^ 0xF1AE0001u);
+      if (o_tl == OIL && (rng_o % 100u) < 15u) {
+        tl = makeCell(FIRE, (rng_o >> 8u) & 0xFFu, 80u + rng_o % 60u);
+      } else if (o_tl == EMPTY && (rng_o & 31u) == 0u) {
+        tl = makeCell(SMOKE, (rng_o >> 8u) & 0xFFu, 40u + rng_o % 30u);
+      }
+      let rng_o2 = hash(rng_o ^ 0xF1AE0002u);
+      if (o_tr == OIL && (rng_o2 % 100u) < 15u) {
+        tr = makeCell(FIRE, (rng_o2 >> 8u) & 0xFFu, 80u + rng_o2 % 60u);
+      } else if (o_tr == EMPTY && (rng_o2 & 31u) == 0u) {
+        tr = makeCell(SMOKE, (rng_o2 >> 8u) & 0xFFu, 40u + rng_o2 % 30u);
+      }
+      let rng_o3 = hash(rng_o2 ^ 0xF1AE0003u);
+      if (o_bl == OIL && (rng_o3 % 100u) < 15u) {
+        bl = makeCell(FIRE, (rng_o3 >> 8u) & 0xFFu, 80u + rng_o3 % 60u);
+      } else if (o_bl == EMPTY && (rng_o3 & 31u) == 0u) {
+        bl = makeCell(SMOKE, (rng_o3 >> 8u) & 0xFFu, 40u + rng_o3 % 30u);
+      }
+      let rng_o4 = hash(rng_o3 ^ 0xF1AE0004u);
+      if (o_br == OIL && (rng_o4 % 100u) < 15u) {
+        br = makeCell(FIRE, (rng_o4 >> 8u) & 0xFFu, 80u + rng_o4 % 60u);
+      } else if (o_br == EMPTY && (rng_o4 & 31u) == 0u) {
+        br = makeCell(SMOKE, (rng_o4 >> 8u) & 0xFFu, 40u + rng_o4 % 30u);
       }
     }
   }
@@ -490,9 +536,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   // === PHASE 1: GRAVITY ===
   if (params.lateral_only == 0u && should_move) {
     // Try to drop left column: TL falls to BL
-    let can_drop_l = getDensity(etl) > getDensity(ebl) && etl != STONE && etl != WOOD && etl != GLASS;
+    let can_drop_l = getDensity(etl) > getDensity(ebl) && !isImmovable(etl) && !isImmovable(ebl);
     // Try to drop right column: TR falls to BR
-    let can_drop_r = getDensity(etr) > getDensity(ebr) && etr != STONE && etr != WOOD && etr != GLASS;
+    let can_drop_r = getDensity(etr) > getDensity(ebr) && !isImmovable(etr) && !isImmovable(ebr);
 
     // Sand-water drag: gates ALL sand movement through water (vertical + diagonal).
     // Without this, sand bypasses vertical drag via the diagonal dispersion path.
@@ -534,8 +580,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
       // Diagonal slides: sand always, water only when the adjacent path is
       // clear (prevents scatter in streams) and with ~25% probability.
-      let tl_slide_base = d_tl > d_br && d_tl > EMPTY_DENSITY && d_bl >= d_tl && etl != STONE && etl != WOOD && etl != GLASS;
-      let tr_slide_base = d_tr > d_bl && d_tr > EMPTY_DENSITY && d_br >= d_tr && etr != STONE && etr != WOOD && etr != GLASS;
+      let tl_slide_base = d_tl > d_br && d_tl > EMPTY_DENSITY && d_bl >= d_tl && !isImmovable(etl) && !isImmovable(ebr);
+      let tr_slide_base = d_tr > d_bl && d_tr > EMPTY_DENSITY && d_br >= d_tr && !isImmovable(etr) && !isImmovable(ebl);
       let water_diag = ((rng1 >> 8u) & 3u) == 0u;
 
       // Sand disperses through water even when not resting on something.
@@ -590,6 +636,29 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     if ((w_tl == WATER && w_tr == EMPTY) || (w_tr == WATER && w_tl == EMPTY)) {
       if (w_bl != EMPTY && w_br != EMPTY) {
         let tmp = tl; tl = tr; tr = tmp;
+      }
+    }
+
+    // Oil lateral spread: same diving-beet rules as water.
+    // Oil is a liquid, spreads laterally when the other row is occupied.
+    {
+      let ol_tl = getElement(tl);
+      let ol_tr = getElement(tr);
+      let ol_bl = getElement(bl);
+      let ol_br = getElement(br);
+
+      // Bottom row: one oil + one empty → swap if top row fully occupied
+      if ((ol_bl == OIL && ol_br == EMPTY) || (ol_br == OIL && ol_bl == EMPTY)) {
+        if (ol_tl != EMPTY && ol_tr != EMPTY) {
+          let tmp = bl; bl = br; br = tmp;
+        }
+      }
+
+      // Top row: one oil + one empty → swap if bottom row fully occupied
+      if ((ol_tl == OIL && ol_tr == EMPTY) || (ol_tr == OIL && ol_tl == EMPTY)) {
+        if (ol_bl != EMPTY && ol_br != EMPTY) {
+          let tmp = tl; tl = tr; tr = tmp;
+        }
       }
     }
 
