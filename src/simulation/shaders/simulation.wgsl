@@ -540,11 +540,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     // Try to drop right column: TR falls to BR
     let can_drop_r = getDensity(etr) > getDensity(ebr) && !isImmovable(etr) && !isImmovable(ebr);
 
-    // Sand-water drag: gates ALL sand movement through water (vertical + diagonal).
+    // Sand-liquid drag: gates ALL sand movement through water/oil (vertical + diagonal).
     // Without this, sand bypasses vertical drag via the diagonal dispersion path.
-    let sand_water_move = (rng1 % 100u) < 35u; // 35% chance to move through water
-    let sw_l = (etl == SAND && ebl == WATER) || (etl == WATER && ebl == SAND);
-    let sw_r = (etr == SAND && ebr == WATER) || (etr == WATER && ebr == SAND);
+    let sand_liquid_move = (rng1 % 100u) < 35u; // 35% chance to move through liquid
+    let sw_l = (etl == SAND && (ebl == WATER || ebl == OIL)) || ((etl == WATER || etl == OIL) && ebl == SAND);
+    let sw_r = (etr == SAND && (ebr == WATER || ebr == OIL)) || ((etr == WATER || etr == OIL) && ebr == SAND);
 
     // Gas rise drag: fire/steam/smoke rise slowly, not every pass.
     // Without this, gases teleport upward at full simulation speed.
@@ -561,8 +561,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let gas_ok_l = (!fire_l || fire_can_move) && (!steam_l || steam_can_move) && (!smoke_l || smoke_can_move);
     let gas_ok_r = (!fire_r || fire_can_move) && (!steam_r || steam_can_move) && (!smoke_r || smoke_can_move);
 
-    let drop_l = can_drop_l && (!sw_l || sand_water_move) && gas_ok_l;
-    let drop_r = can_drop_r && (!sw_r || sand_water_move) && gas_ok_r;
+    let drop_l = can_drop_l && (!sw_l || sand_liquid_move) && gas_ok_l;
+    let drop_r = can_drop_r && (!sw_r || sand_liquid_move) && gas_ok_r;
 
     if (drop_l && drop_r) {
       let tmp = tl; tl = bl; bl = tmp;
@@ -588,16 +588,16 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       // This fires when drag allowed movement and the vertical drop was
       // skipped, letting sand fan out sideways as it sinks through water.
       let sand_disp = ((rng1 >> 12u) & 1u) == 0u; // 50%
-      let tl_water_disp = etl == SAND && ebr == WATER && d_tl > d_br && sand_disp && sand_water_move;
-      let tr_water_disp = etr == SAND && ebl == WATER && d_tr > d_bl && sand_disp && sand_water_move;
+      let tl_liquid_disp = etl == SAND && (ebr == WATER || ebr == OIL) && d_tl > d_br && sand_disp && sand_liquid_move;
+      let tr_liquid_disp = etr == SAND && (ebl == WATER || ebl == OIL) && d_tr > d_bl && sand_disp && sand_liquid_move;
 
-      // Gate standard diagonal slides into water by the same drag
-      let tl_sand_water = etl == SAND && ebr == WATER;
-      let tr_sand_water = etr == SAND && ebl == WATER;
-      let tl_slide_raw = (tl_slide_base && (etl != WATER || (d_tr < d_tl && water_diag))) || tl_water_disp;
-      let tr_slide_raw = (tr_slide_base && (etr != WATER || (d_tl < d_tr && water_diag))) || tr_water_disp;
-      let tl_slide = tl_slide_raw && (!tl_sand_water || sand_water_move);
-      let tr_slide = tr_slide_raw && (!tr_sand_water || sand_water_move);
+      // Gate standard diagonal slides into liquid by the same drag
+      let tl_sand_liquid = etl == SAND && (ebr == WATER || ebr == OIL);
+      let tr_sand_liquid = etr == SAND && (ebl == WATER || ebl == OIL);
+      let tl_slide_raw = (tl_slide_base && (etl != WATER || (d_tr < d_tl && water_diag))) || tl_liquid_disp;
+      let tr_slide_raw = (tr_slide_base && (etr != WATER || (d_tl < d_tr && water_diag))) || tr_liquid_disp;
+      let tl_slide = tl_slide_raw && (!tl_sand_liquid || sand_liquid_move);
+      let tr_slide = tr_slide_raw && (!tr_sand_liquid || sand_liquid_move);
 
       if (tl_slide && tr_slide) {
         if (rand_bit == 0u) {
@@ -625,17 +625,41 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let w_bl = getElement(bl);
     let w_br = getElement(br);
 
-    // Bottom row: one water + one empty → swap if top row fully occupied
+    // Bottom row: water + empty → swap if top row fully occupied
     if ((w_bl == WATER && w_br == EMPTY) || (w_br == WATER && w_bl == EMPTY)) {
       if (w_tl != EMPTY && w_tr != EMPTY) {
         let tmp = bl; bl = br; br = tmp;
       }
     }
 
-    // Top row: one water + one empty → swap if bottom row fully occupied
+    // Top row: water + empty → swap if bottom row fully occupied
     if ((w_tl == WATER && w_tr == EMPTY) || (w_tr == WATER && w_tl == EMPTY)) {
       if (w_bl != EMPTY && w_br != EMPTY) {
         let tmp = tl; tl = tr; tr = tmp;
+      }
+    }
+
+    // Water displaces oil laterally at ~12.5%/pass — fast enough to level
+    // visibly but slow enough to not spray like a sprinkler on contact.
+    {
+      let wo_tl = getElement(tl);
+      let wo_tr = getElement(tr);
+      let wo_bl = getElement(bl);
+      let wo_br = getElement(br);
+      let wo_rng = hash(rng0 ^ 0xA01DF1CEu);
+      let wo_spread = (wo_rng % 100u) < 40u; // ~40%
+
+      if (wo_spread) {
+        if ((wo_bl == WATER && wo_br == OIL) || (wo_br == WATER && wo_bl == OIL)) {
+          if (wo_tl != EMPTY && wo_tr != EMPTY) {
+            let tmp = bl; bl = br; br = tmp;
+          }
+        }
+        if ((wo_tl == WATER && wo_tr == OIL) || (wo_tr == WATER && wo_tl == OIL)) {
+          if (wo_bl != EMPTY && wo_br != EMPTY) {
+            let tmp = tl; tl = tr; tr = tmp;
+          }
+        }
       }
     }
 
@@ -712,9 +736,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       }
     }
 
-    // Underwater sand smoothing: submerged sand spreads laterally, reducing
-    // sharp peaks into gentle curves (lower angle of repose in water).
-    // Only fires when sand is at the pile surface (water directly above it).
+    // Submerged sand smoothing: sand under liquid (water/oil) spreads laterally,
+    // reducing sharp peaks into gentle curves (lower angle of repose in liquid).
+    // Only fires when sand is at the pile surface (liquid directly above it).
     {
       let s_tl = getElement(tl);
       let s_tr = getElement(tr);
@@ -723,9 +747,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       let smooth_rng = hash(rng0 ^ 0x12345678u);
       let should_smooth = (smooth_rng & 31u) == 0u; // ~3% per pass
       if (should_smooth) {
-        if (s_bl == SAND && s_br == WATER && s_tl == WATER) {
+        let s_tl_liq = s_tl == WATER || s_tl == OIL;
+        let s_tr_liq = s_tr == WATER || s_tr == OIL;
+        let s_bl_liq = s_bl == WATER || s_bl == OIL;
+        let s_br_liq = s_br == WATER || s_br == OIL;
+        if (s_bl == SAND && s_br_liq && s_tl_liq) {
           let tmp = bl; bl = br; br = tmp;
-        } else if (s_br == SAND && s_bl == WATER && s_tr == WATER) {
+        } else if (s_br == SAND && s_bl_liq && s_tr_liq) {
           let tmp = bl; bl = br; br = tmp;
         }
       }
