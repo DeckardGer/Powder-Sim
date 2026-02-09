@@ -34,7 +34,7 @@ function App() {
       setBrushSize(size);
       setBrushState({ ...brushRef.current });
     },
-    [setBrushSize, brushRef]
+    [setBrushSize, brushRef],
   );
 
   const handleBrushElementChange = useCallback(
@@ -42,7 +42,7 @@ function App() {
       setBrushElement(element);
       setBrushState({ ...brushRef.current });
     },
-    [setBrushElement, brushRef]
+    [setBrushElement, brushRef],
   );
 
   const handleStatsUpdate = useCallback((newStats: SimulationStats) => {

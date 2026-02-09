@@ -53,7 +53,7 @@ export function SimulationCanvas({
         fpsCounterRef.current.frames++;
         if (elapsed >= 1000) {
           const fps = Math.round(
-            (fpsCounterRef.current.frames * 1000) / elapsed
+            (fpsCounterRef.current.frames * 1000) / elapsed,
           );
           fpsCounterRef.current.frames = 0;
           fpsCounterRef.current.lastTime = now;
@@ -73,7 +73,7 @@ export function SimulationCanvas({
         renderer.render(
           encoder,
           textureView,
-          simulation.getCurrentBufferIndex()
+          simulation.getCurrentBufferIndex(),
         );
 
         device.queue.submit([encoder.finish()]);
@@ -82,7 +82,7 @@ export function SimulationCanvas({
 
       animFrameRef.current = requestAnimationFrame(loop);
     },
-    [gpuContext, onStatsUpdate]
+    [gpuContext, onStatsUpdate],
   );
 
   useEffect(() => {

@@ -17,15 +17,16 @@ export function StatusBar({ stats }: StatusBarProps) {
       <div className="flex items-center gap-6">
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
           FPS{" "}
-          <span className={fpsColor(stats.fps)}>{stats.fps.toString().padStart(3, " ")}</span>
+          <span className={fpsColor(stats.fps)}>
+            {stats.fps.toString().padStart(3, " ")}
+          </span>
         </span>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
           PARTICLES{" "}
           <span className="text-foreground">{stats.particleCount}</span>
         </span>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          FRAME{" "}
-          <span className="text-foreground">{stats.frameCount}</span>
+          FRAME <span className="text-foreground">{stats.frameCount}</span>
         </span>
       </div>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground/50">

@@ -36,7 +36,7 @@ export async function initWebGPU(): Promise<GPUContext> {
 
 export function configureCanvas(
   canvas: HTMLCanvasElement,
-  device: GPUDevice
+  device: GPUDevice,
 ): GPUCanvasContext {
   const context = canvas.getContext("webgpu");
   if (!context) {

@@ -9,9 +9,8 @@ export class SimulationRenderer {
   constructor(
     device: GPUDevice,
     simulation: PowderSimulation,
-    format: GPUTextureFormat
+    format: GPUTextureFormat,
   ) {
-
     const shaderModule = device.createShaderModule({
       code: renderShaderSource,
     });
@@ -68,7 +67,11 @@ export class SimulationRenderer {
     ];
   }
 
-  render(encoder: GPUCommandEncoder, view: GPUTextureView, currentBufferIndex: number): void {
+  render(
+    encoder: GPUCommandEncoder,
+    view: GPUTextureView,
+    currentBufferIndex: number,
+  ): void {
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {

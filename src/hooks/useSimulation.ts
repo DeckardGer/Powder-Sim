@@ -24,13 +24,16 @@ export function useSimulation() {
   const setBrushSize = useCallback((size: number) => {
     const clamped = Math.max(
       DEFAULT_BRUSH.minSize,
-      Math.min(DEFAULT_BRUSH.maxSize, size)
+      Math.min(DEFAULT_BRUSH.maxSize, size),
     );
     brushRef.current = { ...brushRef.current, size: clamped };
   }, []);
 
   const setBrushElement = useCallback((element: number) => {
-    brushRef.current = { ...brushRef.current, element: element as BrushConfig["element"] };
+    brushRef.current = {
+      ...brushRef.current,
+      element: element as BrushConfig["element"],
+    };
   }, []);
 
   /** Convert canvas pixel coordinates to grid coordinates */
@@ -38,7 +41,7 @@ export function useSimulation() {
     (
       canvasX: number,
       canvasY: number,
-      canvas: HTMLCanvasElement
+      canvas: HTMLCanvasElement,
     ): { x: number; y: number } => {
       const rect = canvas.getBoundingClientRect();
       const scaleX = DEFAULT_CONFIG.width / rect.width;
@@ -48,7 +51,7 @@ export function useSimulation() {
         y: Math.floor((canvasY - rect.top) * scaleY),
       };
     },
-    []
+    [],
   );
 
   /** Paint a circular brush stamp at (cx, cy) */
@@ -107,7 +110,7 @@ export function useSimulation() {
         }
       }
     },
-    [stamp]
+    [stamp],
   );
 
   /** Flush pending cells to the simulation */
@@ -154,7 +157,7 @@ export function useSimulation() {
       flushCells();
       startHoldInterval();
     },
-    [canvasToGrid, stamp, flushCells, startHoldInterval]
+    [canvasToGrid, stamp, flushCells, startHoldInterval],
   );
 
   const onPointerMove = useCallback(
@@ -173,7 +176,7 @@ export function useSimulation() {
       lastPosRef.current = pos;
       flushCells();
     },
-    [canvasToGrid, bresenhamLine, stamp, flushCells]
+    [canvasToGrid, bresenhamLine, stamp, flushCells],
   );
 
   const onPointerUp = useCallback(() => {
