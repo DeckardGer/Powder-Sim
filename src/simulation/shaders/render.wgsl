@@ -40,6 +40,7 @@ const ACID: u32 = 11u;
 const GUNPOWDER: u32 = 12u;
 const BOMB: u32 = 13u;
 const PLANT: u32 = 14u;
+const ICE: u32 = 15u;
 
 struct RenderParams {
   width: u32,
@@ -238,6 +239,18 @@ fn plantColor(variation: f32) -> vec3f {
   return mix(base, light, (t - 0.5) * 2.0);
 }
 
+fn iceColor(variation: f32) -> vec3f {
+  // Pale cyan/blue crystal palette
+  let base = vec3f(0.72, 0.88, 0.95);
+  let dark = vec3f(0.55, 0.75, 0.88);
+  let light = vec3f(0.85, 0.95, 1.0);
+  let t = variation;
+  if (t < 0.5) {
+    return mix(dark, base, t * 2.0);
+  }
+  return mix(base, light, (t - 0.5) * 2.0);
+}
+
 fn bombColor(variation: f32) -> vec3f {
   // Dark iron/steel with subtle red danger tint
   let base = vec3f(0.28, 0.18, 0.16);
@@ -309,6 +322,9 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
     }
     case PLANT: {
       color = plantColor(colorVar);
+    }
+    case ICE: {
+      color = iceColor(colorVar);
     }
     default: {
       // Empty: near-black with subtle grid pattern

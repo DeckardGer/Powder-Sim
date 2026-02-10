@@ -25,6 +25,7 @@ const ACID: u32 = 11u;
 const GUNPOWDER: u32 = 12u;
 const BOMB: u32 = 13u;
 const PLANT: u32 = 14u;
+const ICE: u32 = 15u;
 
 // Density: fire/steam < empty so they rise via existing gravity logic.
 // The key insight from diving-beet/falling-turnip: gases lighter than empty
@@ -53,7 +54,7 @@ fn getLifetime(cell: u32) -> u32 {
 }
 
 fn isImmovable(element: u32) -> bool {
-  return element == STONE || element == WOOD || element == GLASS || element == BOMB || element == PLANT;
+  return element == STONE || element == WOOD || element == GLASS || element == BOMB || element == PLANT || element == ICE;
 }
 
 fn getDensity(element: u32) -> u32 {
@@ -70,6 +71,7 @@ fn getDensity(element: u32) -> u32 {
     case PLANT: { return 9u; }
     case SAND:      { return 10u; }
     case GUNPOWDER: { return 10u; }
+    case ICE:   { return 200u; }
     case GLASS: { return 200u; }
     case BOMB:  { return 255u; }
     case STONE: { return 255u; }
@@ -280,8 +282,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     let has_fire = (a_tl == FIRE || a_tr == FIRE || a_bl == FIRE || a_br == FIRE);
     let has_water = (a_tl == WATER || a_tr == WATER || a_bl == WATER || a_br == WATER);
+    // Suppress fire+water when ice is present — let meltwater accumulate
+    let has_ice_fw = (a_tl == ICE || a_tr == ICE || a_bl == ICE || a_br == ICE);
 
-    if (has_fire && has_water) {
+    if (has_fire && has_water && !has_ice_fw) {
       let rng_a = hash(rng1 ^ 0xFEEDFACEu);
       let rng_b = hash(rng_a ^ 0xABCD1234u);
       let rng_c = hash(rng_b ^ 0x5678EF01u);
@@ -304,6 +308,49 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       let steam_coin_d = hash(rng_d ^ 0x5EA40004u);
       if (a_br == FIRE) { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 40u + rng_d % 40u); }
       else if (a_br == WATER) { if ((rng_d % 100u) < 30u) { if ((steam_coin_d % 100u) < 60u) { br = makeCell(STEAM, (rng_d >> 8u) & 0xFFu, 60u + rng_d % 60u); } else { br = 0u; } } }
+    }
+  }
+
+  // === ALCHEMY: fire + ice → fire extinguished, ice melts to water ===
+  // Fire is consumed by ice (~10%/pass). Ice → water, fire → empty.
+  // Cold extinguishes fire, leaving clean meltwater.
+  {
+    let fi_tl = getElement(tl);
+    let fi_tr = getElement(tr);
+    let fi_bl = getElement(bl);
+    let fi_br = getElement(br);
+
+    let has_fire_i = (fi_tl == FIRE || fi_tr == FIRE || fi_bl == FIRE || fi_br == FIRE);
+    let has_ice = (fi_tl == ICE || fi_tr == ICE || fi_bl == ICE || fi_br == ICE);
+
+    if (has_fire_i && has_ice) {
+      let fi_rng = hash(rng1 ^ 0x1ce00001u);
+      // Ice melts → water
+      if (fi_tl == ICE && (fi_rng % 100u) < 10u) {
+        tl = makeCell(WATER, (fi_rng >> 8u) & 0xFFu, 0u);
+      }
+      let fi_rng2 = hash(fi_rng ^ 0x1ce00002u);
+      if (fi_tr == ICE && (fi_rng2 % 100u) < 10u) {
+        tr = makeCell(WATER, (fi_rng2 >> 8u) & 0xFFu, 0u);
+      }
+      let fi_rng3 = hash(fi_rng2 ^ 0x1ce00003u);
+      if (fi_bl == ICE && (fi_rng3 % 100u) < 10u) {
+        bl = makeCell(WATER, (fi_rng3 >> 8u) & 0xFFu, 0u);
+      }
+      let fi_rng4 = hash(fi_rng3 ^ 0x1ce00004u);
+      if (fi_br == ICE && (fi_rng4 % 100u) < 10u) {
+        br = makeCell(WATER, (fi_rng4 >> 8u) & 0xFFu, 0u);
+      }
+
+      // Fire extinguished by cold (~10%/pass)
+      let fe_rng = hash(fi_rng4 ^ 0x1ce0f1e1u);
+      if (fi_tl == FIRE && (fe_rng % 100u) < 10u) { tl = 0u; }
+      let fe_rng2 = hash(fe_rng ^ 0x1ce0f1e2u);
+      if (fi_tr == FIRE && (fe_rng2 % 100u) < 10u) { tr = 0u; }
+      let fe_rng3 = hash(fe_rng2 ^ 0x1ce0f1e3u);
+      if (fi_bl == FIRE && (fe_rng3 % 100u) < 10u) { bl = 0u; }
+      let fe_rng4 = hash(fe_rng3 ^ 0x1ce0f1e4u);
+      if (fi_br == FIRE && (fe_rng4 % 100u) < 10u) { br = 0u; }
     }
   }
 
@@ -559,6 +606,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if (bf_tl == BOMB) { tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, 250u); }
         else if (bf_tl == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng % 4u), max_blast_lt), 255u); tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, amp_lt); }
         else if (bf_tl == WATER) { tl = makeCell(STEAM, (bf_rng >> 8u) & 0xFFu, 80u + bf_rng % 60u); }
+        else if (bf_tl == ICE) { tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, new_lt); }
         else if (bf_tl == ACID) { tl = makeCell(SMOKE, (bf_rng >> 8u) & 0xFFu, 40u + bf_rng % 30u); }
         else if (bf_tl == STONE) { tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, new_lt) | MOLTEN_FLAG; }
         else if (bf_tl == GLASS) { tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, new_lt); }
@@ -572,6 +620,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if (bf_tr == BOMB) { tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, 250u); }
         else if (bf_tr == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng2 % 4u), max_blast_lt), 255u); tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, amp_lt); }
         else if (bf_tr == WATER) { tr = makeCell(STEAM, (bf_rng2 >> 8u) & 0xFFu, 80u + bf_rng2 % 60u); }
+        else if (bf_tr == ICE) { tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, new_lt); }
         else if (bf_tr == ACID) { tr = makeCell(SMOKE, (bf_rng2 >> 8u) & 0xFFu, 40u + bf_rng2 % 30u); }
         else if (bf_tr == STONE) { tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, new_lt) | MOLTEN_FLAG; }
         else if (bf_tr == GLASS) { tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, new_lt); }
@@ -585,6 +634,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if (bf_bl == BOMB) { bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, 250u); }
         else if (bf_bl == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng3 % 4u), max_blast_lt), 255u); bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, amp_lt); }
         else if (bf_bl == WATER) { bl = makeCell(STEAM, (bf_rng3 >> 8u) & 0xFFu, 80u + bf_rng3 % 60u); }
+        else if (bf_bl == ICE) { bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, new_lt); }
         else if (bf_bl == ACID) { bl = makeCell(SMOKE, (bf_rng3 >> 8u) & 0xFFu, 40u + bf_rng3 % 30u); }
         else if (bf_bl == STONE) { bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, new_lt) | MOLTEN_FLAG; }
         else if (bf_bl == GLASS) { bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, new_lt); }
@@ -598,6 +648,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         if (bf_br == BOMB) { br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, 250u); }
         else if (bf_br == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng4 % 4u), max_blast_lt), 255u); br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, amp_lt); }
         else if (bf_br == WATER) { br = makeCell(STEAM, (bf_rng4 >> 8u) & 0xFFu, 80u + bf_rng4 % 60u); }
+        else if (bf_br == ICE) { br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, new_lt); }
         else if (bf_br == ACID) { br = makeCell(SMOKE, (bf_rng4 >> 8u) & 0xFFu, 40u + bf_rng4 % 30u); }
         else if (bf_br == STONE) { br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, new_lt) | MOLTEN_FLAG; }
         else if (bf_br == GLASS) { br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, new_lt); }
@@ -670,7 +721,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       // Water evaporates (~50%/pass), lava loses 3-5 heat per water cell.
       // Gravity handles sinking (density 7 > 5), no instant solidification.
       let has_water_lv = (lv_tl == WATER || lv_tr == WATER || lv_bl == WATER || lv_br == WATER);
-      if (has_water_lv) {
+      // Suppress lava+water evaporation when ice is present — let meltwater accumulate
+      let has_ice_lw = (lv_tl == ICE || lv_tr == ICE || lv_bl == ICE || lv_br == ICE);
+      if (has_water_lv && !has_ice_lw) {
         let water_ct = u32(lv_tl == WATER) + u32(lv_tr == WATER) + u32(lv_bl == WATER) + u32(lv_br == WATER);
         let cool_amt = water_ct * (3u + (lv_rng & 1u)); // 3-4 heat per water cell
 
@@ -788,6 +841,27 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
           let lbm_rng4 = hash(lbm_rng3 ^ 0xb00b1a0du);
           if (lv2_br == BOMB) { br = makeCell(FIRE, (lbm_rng4 >> 8u) & 0xFFu, 250u); }
         }
+
+        // --- Lava + Ice: fast melting (~30%/pass) ---
+        let has_ice_lv = (lv2_tl == ICE || lv2_tr == ICE || lv2_bl == ICE || lv2_br == ICE);
+        if (has_ice_lv) {
+          let li_rng = hash(lv_rng ^ 0x1ce01a01u);
+          if (lv2_tl == ICE && (li_rng % 100u) < 30u) { tl = makeCell(WATER, (li_rng >> 8u) & 0xFFu, 0u); }
+          let li_rng2 = hash(li_rng ^ 0x1ce01a02u);
+          if (lv2_tr == ICE && (li_rng2 % 100u) < 30u) { tr = makeCell(WATER, (li_rng2 >> 8u) & 0xFFu, 0u); }
+          let li_rng3 = hash(li_rng2 ^ 0x1ce01a03u);
+          if (lv2_bl == ICE && (li_rng3 % 100u) < 30u) { bl = makeCell(WATER, (li_rng3 >> 8u) & 0xFFu, 0u); }
+          let li_rng4 = hash(li_rng3 ^ 0x1ce01a04u);
+          if (lv2_br == ICE && (li_rng4 % 100u) < 30u) { br = makeCell(WATER, (li_rng4 >> 8u) & 0xFFu, 0u); }
+
+          // Lava loses heat from melting ice (3-4 per ice cell)
+          let ice_ct_lv = u32(lv2_tl == ICE) + u32(lv2_tr == ICE) + u32(lv2_bl == ICE) + u32(lv2_br == ICE);
+          let ice_cool = ice_ct_lv * (3u + (li_rng & 1u));
+          if (lv2_tl == LAVA) { let h = getLifetime(tl); if (h > ice_cool) { tl = setLifetime(tl, h - ice_cool); } else { tl = setLifetime(tl, 0u); } }
+          if (lv2_tr == LAVA) { let h = getLifetime(tr); if (h > ice_cool) { tr = setLifetime(tr, h - ice_cool); } else { tr = setLifetime(tr, 0u); } }
+          if (lv2_bl == LAVA) { let h = getLifetime(bl); if (h > ice_cool) { bl = setLifetime(bl, h - ice_cool); } else { bl = setLifetime(bl, 0u); } }
+          if (lv2_br == LAVA) { let h = getLifetime(br); if (h > ice_cool) { br = setLifetime(br, h - ice_cool); } else { br = setLifetime(br, 0u); } }
+        }
       }
     }
   }
@@ -886,6 +960,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (ac2_tl == GUNPOWDER && (d_rng1 % 100u) < 5u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 3u; }
         else if (ac2_tl == BOMB && (d_rng1 % 100u) < 3u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 5u; }
         else if (ac2_tl == PLANT && (d_rng1 % 100u) < 8u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 2u; }
+        else if (ac2_tl == ICE && (d_rng1 % 100u) < 5u) { tl = makeCell(WATER, (d_rng1 >> 8u) & 0xFFu, 0u); dissolved += 3u; }
 
         // --- Dissolve TR ---
         let d_rng2 = hash(ad_rng ^ 0xd1550002u);
@@ -897,6 +972,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (ac2_tr == GUNPOWDER && (d_rng2 % 100u) < 5u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 3u; }
         else if (ac2_tr == BOMB && (d_rng2 % 100u) < 3u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 5u; }
         else if (ac2_tr == PLANT && (d_rng2 % 100u) < 8u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 2u; }
+        else if (ac2_tr == ICE && (d_rng2 % 100u) < 5u) { tr = makeCell(WATER, (d_rng2 >> 8u) & 0xFFu, 0u); dissolved += 3u; }
 
         // --- Dissolve BL ---
         let d_rng3 = hash(ad_rng ^ 0xd1550003u);
@@ -908,6 +984,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (ac2_bl == GUNPOWDER && (d_rng3 % 100u) < 5u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 3u; }
         else if (ac2_bl == BOMB && (d_rng3 % 100u) < 3u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 5u; }
         else if (ac2_bl == PLANT && (d_rng3 % 100u) < 8u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 2u; }
+        else if (ac2_bl == ICE && (d_rng3 % 100u) < 5u) { bl = makeCell(WATER, (d_rng3 >> 8u) & 0xFFu, 0u); dissolved += 3u; }
 
         // --- Dissolve BR ---
         let d_rng4 = hash(ad_rng ^ 0xd1550004u);
@@ -919,6 +996,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (ac2_br == GUNPOWDER && (d_rng4 % 100u) < 5u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 3u; }
         else if (ac2_br == BOMB && (d_rng4 % 100u) < 3u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 5u; }
         else if (ac2_br == PLANT && (d_rng4 % 100u) < 8u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 2u; }
+        else if (ac2_br == ICE && (d_rng4 % 100u) < 5u) { br = makeCell(WATER, (d_rng4 >> 8u) & 0xFFu, 0u); dissolved += 3u; }
 
         // Deduct potency from acid cells (split cost across acid cells in block)
         if (dissolved > 0u && acid_count > 0u) {
@@ -962,6 +1040,49 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       if (pt_br == WATER && (pt_rng4 % 100u) < 3u) {
         br = makeCell(PLANT, (pt_rng4 >> 8u) & 0xFFu, 0u);
       }
+    }
+  }
+
+  // === ALCHEMY: water + ice → ice crystal growth ===
+  // Water adjacent to ice freezes into ice (~3%/pass). Creates spreading crystal walls.
+  {
+    let ic_tl = getElement(tl);
+    let ic_tr = getElement(tr);
+    let ic_bl = getElement(bl);
+    let ic_br = getElement(br);
+
+    let has_ice_g = (ic_tl == ICE || ic_tr == ICE || ic_bl == ICE || ic_br == ICE);
+    let has_water_ig = (ic_tl == WATER || ic_tr == WATER || ic_bl == WATER || ic_br == WATER);
+
+    if (has_ice_g && has_water_ig) {
+      let ic_rng = hash(rng1 ^ 0x1ceb0001u);
+      if (ic_tl == WATER && (ic_rng % 100u) < 3u) {
+        tl = makeCell(ICE, (ic_rng >> 8u) & 0xFFu, 0u);
+      }
+      let ic_rng2 = hash(ic_rng ^ 0x1ceb0002u);
+      if (ic_tr == WATER && (ic_rng2 % 100u) < 3u) {
+        tr = makeCell(ICE, (ic_rng2 >> 8u) & 0xFFu, 0u);
+      }
+      let ic_rng3 = hash(ic_rng2 ^ 0x1ceb0003u);
+      if (ic_bl == WATER && (ic_rng3 % 100u) < 3u) {
+        bl = makeCell(ICE, (ic_rng3 >> 8u) & 0xFFu, 0u);
+      }
+      let ic_rng4 = hash(ic_rng3 ^ 0x1ceb0004u);
+      if (ic_br == WATER && (ic_rng4 % 100u) < 3u) {
+        br = makeCell(ICE, (ic_rng4 >> 8u) & 0xFFu, 0u);
+      }
+    }
+
+    // Steam near ice condenses back to water (~40%/pass)
+    if (has_ice_g) {
+      let sc_rng = hash(rng1 ^ 0x1ce50001u);
+      if (ic_tl == STEAM && (sc_rng % 100u) < 40u) { tl = makeCell(WATER, (sc_rng >> 8u) & 0xFFu, 0u); }
+      let sc_rng2 = hash(sc_rng ^ 0x1ce50002u);
+      if (ic_tr == STEAM && (sc_rng2 % 100u) < 40u) { tr = makeCell(WATER, (sc_rng2 >> 8u) & 0xFFu, 0u); }
+      let sc_rng3 = hash(sc_rng2 ^ 0x1ce50003u);
+      if (ic_bl == STEAM && (sc_rng3 % 100u) < 40u) { bl = makeCell(WATER, (sc_rng3 >> 8u) & 0xFFu, 0u); }
+      let sc_rng4 = hash(sc_rng3 ^ 0x1ce50004u);
+      if (ic_br == STEAM && (sc_rng4 % 100u) < 40u) { br = makeCell(WATER, (sc_rng4 >> 8u) & 0xFFu, 0u); }
     }
   }
 
@@ -1175,6 +1296,24 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let bx_sc4 = hash(bx_rng4 ^ 0x5EA40004u);
         if (hx_br == WATER && (bx_rng4 % 100u) < 1u) {
           if ((bx_sc4 % 100u) < 60u) { br = makeCell(STEAM, (bx_rng4 >> 8u) & 0xFFu, 120u + bx_rng4 % 80u); } else { br = 0u; }
+        }
+
+        // Hot stone (>100) melts ice → water (~2% per pass)
+        let im_rng = hash(fx_rng ^ 0x1ce0bee0u);
+        if (hx_tl == ICE && (im_rng % 100u) < 2u) {
+          tl = makeCell(WATER, (im_rng >> 8u) & 0xFFu, 0u);
+        }
+        let im_rng2 = hash(im_rng ^ 0x1ce0bee1u);
+        if (hx_tr == ICE && (im_rng2 % 100u) < 2u) {
+          tr = makeCell(WATER, (im_rng2 >> 8u) & 0xFFu, 0u);
+        }
+        let im_rng3 = hash(im_rng2 ^ 0x1ce0bee2u);
+        if (hx_bl == ICE && (im_rng3 % 100u) < 2u) {
+          bl = makeCell(WATER, (im_rng3 >> 8u) & 0xFFu, 0u);
+        }
+        let im_rng4 = hash(im_rng3 ^ 0x1ce0bee3u);
+        if (hx_br == ICE && (im_rng4 % 100u) < 2u) {
+          br = makeCell(WATER, (im_rng4 >> 8u) & 0xFFu, 0u);
         }
       }
     }
