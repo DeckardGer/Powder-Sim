@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { BrushConfig } from "@/types";
 import { ElementType } from "@/types";
 
@@ -42,22 +43,24 @@ export function Toolbar({
         <p className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
           ELEMENT
         </p>
-        <div className="flex flex-col gap-1">
-          {ELEMENTS.map(({ type, label, color }) => (
-            <button
-              key={type}
-              className={`flex items-center gap-2 px-2 py-1 text-left text-[11px] uppercase tracking-wider transition-none outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] ${
-                brush.element === type
-                  ? "bg-foreground/10 text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              onClick={() => onBrushElementChange(type)}
-            >
-              <span className={`inline-block h-2.5 w-2.5 ${color}`} />
-              {label}
-            </button>
-          ))}
-        </div>
+        <ScrollArea className="max-h-[calc(100vh-236px)]">
+          <div className="flex flex-col gap-1 px-1">
+            {ELEMENTS.map(({ type, label, color }) => (
+              <button
+                key={type}
+                className={`flex items-center gap-2 px-2 py-1 text-left text-[11px] uppercase tracking-wider transition-none outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px] ${
+                  brush.element === type
+                    ? "bg-foreground/10 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                onClick={() => onBrushElementChange(type)}
+              >
+                <span className={`inline-block h-2.5 w-2.5 ${color}`} />
+                {label}
+              </button>
+            ))}
+          </div>
+        </ScrollArea>
       </div>
 
       {/* Brush size */}
