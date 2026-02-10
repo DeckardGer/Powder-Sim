@@ -2,6 +2,8 @@
 
 A WebGPU-accelerated falling sand simulator built with React and TypeScript. Uses Margolus neighborhood cellular automata running entirely on the GPU via compute shaders.
 
+**Live demo:** https://powder-simulation.vercel.app/
+
 ## Features
 
 - **GPU compute simulation** — 24 Margolus CA passes per frame on a 512x512 grid
