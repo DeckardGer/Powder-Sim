@@ -13,6 +13,7 @@ export const ElementType = {
   Acid: 11,
   Gunpowder: 12,
   Bomb: 13,
+  Plant: 14,
 } as const;
 
 export type ElementTypeValue = (typeof ElementType)[keyof typeof ElementType];

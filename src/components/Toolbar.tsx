@@ -23,6 +23,7 @@ const ELEMENTS = [
   { type: ElementType.Acid, label: "ACID", color: "bg-green-500" },
   { type: ElementType.Gunpowder, label: "GUNPDR", color: "bg-zinc-600" },
   { type: ElementType.Bomb, label: "BOMB", color: "bg-red-950" },
+  { type: ElementType.Plant, label: "PLANT", color: "bg-green-700" },
   { type: ElementType.Empty, label: "ERASE", color: "bg-zinc-900" },
 ] as const;
 

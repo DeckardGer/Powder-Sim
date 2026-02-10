@@ -39,6 +39,7 @@ const LAVA: u32 = 10u;
 const ACID: u32 = 11u;
 const GUNPOWDER: u32 = 12u;
 const BOMB: u32 = 13u;
+const PLANT: u32 = 14u;
 
 struct RenderParams {
   width: u32,
@@ -225,6 +226,18 @@ fn gunpowderColor(variation: f32) -> vec3f {
   return mix(base, light, (t - 0.5) * 2.0);
 }
 
+fn plantColor(variation: f32) -> vec3f {
+  // Forest green palette with per-particle variation
+  let base = vec3f(0.15, 0.45, 0.12);
+  let dark = vec3f(0.08, 0.30, 0.06);
+  let light = vec3f(0.22, 0.58, 0.18);
+  let t = variation;
+  if (t < 0.5) {
+    return mix(dark, base, t * 2.0);
+  }
+  return mix(base, light, (t - 0.5) * 2.0);
+}
+
 fn bombColor(variation: f32) -> vec3f {
   // Dark iron/steel with subtle red danger tint
   let base = vec3f(0.28, 0.18, 0.16);
@@ -293,6 +306,9 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
     }
     case BOMB: {
       color = bombColor(colorVar);
+    }
+    case PLANT: {
+      color = plantColor(colorVar);
     }
     default: {
       // Empty: near-black with subtle grid pattern

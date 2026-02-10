@@ -22,6 +22,7 @@ const LAVA: u32 = 10u;
 const ACID: u32 = 11u;
 const GUNPOWDER: u32 = 12u;
 const BOMB: u32 = 13u;
+const PLANT: u32 = 14u;
 
 // Density: fire/steam < empty so they rise via existing gravity logic.
 // The key insight from diving-beet/falling-turnip: gases lighter than empty
@@ -50,7 +51,7 @@ fn getLifetime(cell: u32) -> u32 {
 }
 
 fn isImmovable(element: u32) -> bool {
-  return element == STONE || element == WOOD || element == GLASS || element == BOMB;
+  return element == STONE || element == WOOD || element == GLASS || element == BOMB || element == PLANT;
 }
 
 fn getDensity(element: u32) -> u32 {
@@ -64,6 +65,7 @@ fn getDensity(element: u32) -> u32 {
     case ACID:  { return 6u; }
     case LAVA:  { return 7u; }
     case WOOD:  { return 9u; }
+    case PLANT: { return 9u; }
     case SAND:      { return 10u; }
     case GUNPOWDER: { return 10u; }
     case GLASS: { return 200u; }
@@ -328,6 +330,46 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         br = makeCell(FIRE, (rng_w4 >> 8u) & 0xFFu, 100u + rng_w4 % 60u);
       } else if (w_br == EMPTY && (rng_w4 & 63u) == 0u) {
         br = makeCell(SMOKE, (rng_w4 >> 8u) & 0xFFu, 40u + rng_w4 % 30u);
+      }
+    }
+  }
+
+  // === ALCHEMY: fire + plant → plant ignites + smoke ===
+  // Plant in the same 2x2 block as fire catches fire (~0.2% per pass).
+  // Same rate as wood. Fire is unaffected. Empty cells emit smoke.
+  {
+    let fp_tl = getElement(tl);
+    let fp_tr = getElement(tr);
+    let fp_bl = getElement(bl);
+    let fp_br = getElement(br);
+
+    let has_fire_fp = (fp_tl == FIRE || fp_tr == FIRE || fp_bl == FIRE || fp_br == FIRE);
+    let has_plant = (fp_tl == PLANT || fp_tr == PLANT || fp_bl == PLANT || fp_br == PLANT);
+
+    if (has_fire_fp && has_plant) {
+      let fp_rng = hash(rng1 ^ 0xf1ae0a01u);
+      if (fp_tl == PLANT && (fp_rng & 511u) == 0u) {
+        tl = makeCell(FIRE, (fp_rng >> 8u) & 0xFFu, 80u + fp_rng % 60u);
+      } else if (fp_tl == EMPTY && (fp_rng & 63u) == 0u) {
+        tl = makeCell(SMOKE, (fp_rng >> 8u) & 0xFFu, 40u + fp_rng % 30u);
+      }
+      let fp_rng2 = hash(fp_rng ^ 0xf1ae0a02u);
+      if (fp_tr == PLANT && (fp_rng2 & 511u) == 0u) {
+        tr = makeCell(FIRE, (fp_rng2 >> 8u) & 0xFFu, 80u + fp_rng2 % 60u);
+      } else if (fp_tr == EMPTY && (fp_rng2 & 63u) == 0u) {
+        tr = makeCell(SMOKE, (fp_rng2 >> 8u) & 0xFFu, 40u + fp_rng2 % 30u);
+      }
+      let fp_rng3 = hash(fp_rng2 ^ 0xf1ae0a03u);
+      if (fp_bl == PLANT && (fp_rng3 & 511u) == 0u) {
+        bl = makeCell(FIRE, (fp_rng3 >> 8u) & 0xFFu, 80u + fp_rng3 % 60u);
+      } else if (fp_bl == EMPTY && (fp_rng3 & 63u) == 0u) {
+        bl = makeCell(SMOKE, (fp_rng3 >> 8u) & 0xFFu, 40u + fp_rng3 % 30u);
+      }
+      let fp_rng4 = hash(fp_rng3 ^ 0xf1ae0a04u);
+      if (fp_br == PLANT && (fp_rng4 & 511u) == 0u) {
+        br = makeCell(FIRE, (fp_rng4 >> 8u) & 0xFFu, 80u + fp_rng4 % 60u);
+      } else if (fp_br == EMPTY && (fp_rng4 & 63u) == 0u) {
+        br = makeCell(SMOKE, (fp_rng4 >> 8u) & 0xFFu, 40u + fp_rng4 % 30u);
       }
     }
   }
@@ -671,6 +713,19 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
           if (lv2_br == WOOD && (lw_rng4 % 100u) < 8u) { br = makeCell(FIRE, (lw_rng4 >> 8u) & 0xFFu, 80u + lw_rng4 % 60u); }
         }
 
+        // --- Lava + Plant: ignites plant (~10%/pass) ---
+        let has_plant_lv = (lv2_tl == PLANT || lv2_tr == PLANT || lv2_bl == PLANT || lv2_br == PLANT);
+        if (has_plant_lv) {
+          let lp_rng = hash(lv_rng ^ 0xd00d0005u);
+          if (lv2_tl == PLANT && (lp_rng % 100u) < 10u) { tl = makeCell(FIRE, (lp_rng >> 8u) & 0xFFu, 80u + lp_rng % 60u); }
+          let lp_rng2 = hash(lp_rng ^ 0xd00d0006u);
+          if (lv2_tr == PLANT && (lp_rng2 % 100u) < 10u) { tr = makeCell(FIRE, (lp_rng2 >> 8u) & 0xFFu, 80u + lp_rng2 % 60u); }
+          let lp_rng3 = hash(lp_rng2 ^ 0xd00d0007u);
+          if (lv2_bl == PLANT && (lp_rng3 % 100u) < 10u) { bl = makeCell(FIRE, (lp_rng3 >> 8u) & 0xFFu, 80u + lp_rng3 % 60u); }
+          let lp_rng4 = hash(lp_rng3 ^ 0xd00d0008u);
+          if (lv2_br == PLANT && (lp_rng4 % 100u) < 10u) { br = makeCell(FIRE, (lp_rng4 >> 8u) & 0xFFu, 80u + lp_rng4 % 60u); }
+        }
+
         // --- Lava + Oil: ignites oil (~20%/pass) ---
         let has_oil_lv = (lv2_tl == OIL || lv2_tr == OIL || lv2_bl == OIL || lv2_br == OIL);
         if (has_oil_lv) {
@@ -806,6 +861,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (ac2_tl == OIL && (d_rng1 % 100u) < 10u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 2u; }
         else if (ac2_tl == GUNPOWDER && (d_rng1 % 100u) < 5u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 3u; }
         else if (ac2_tl == BOMB && (d_rng1 % 100u) < 3u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 5u; }
+        else if (ac2_tl == PLANT && (d_rng1 % 100u) < 8u) { tl = makeCell(SMOKE, (d_rng1 >> 8u) & 0xFFu, 30u + d_rng1 % 20u); dissolved += 2u; }
 
         // --- Dissolve TR ---
         let d_rng2 = hash(ad_rng ^ 0xd1550002u);
@@ -816,6 +872,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (ac2_tr == OIL && (d_rng2 % 100u) < 10u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 2u; }
         else if (ac2_tr == GUNPOWDER && (d_rng2 % 100u) < 5u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 3u; }
         else if (ac2_tr == BOMB && (d_rng2 % 100u) < 3u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 5u; }
+        else if (ac2_tr == PLANT && (d_rng2 % 100u) < 8u) { tr = makeCell(SMOKE, (d_rng2 >> 8u) & 0xFFu, 30u + d_rng2 % 20u); dissolved += 2u; }
 
         // --- Dissolve BL ---
         let d_rng3 = hash(ad_rng ^ 0xd1550003u);
@@ -826,6 +883,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (ac2_bl == OIL && (d_rng3 % 100u) < 10u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 2u; }
         else if (ac2_bl == GUNPOWDER && (d_rng3 % 100u) < 5u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 3u; }
         else if (ac2_bl == BOMB && (d_rng3 % 100u) < 3u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 5u; }
+        else if (ac2_bl == PLANT && (d_rng3 % 100u) < 8u) { bl = makeCell(SMOKE, (d_rng3 >> 8u) & 0xFFu, 30u + d_rng3 % 20u); dissolved += 2u; }
 
         // --- Dissolve BR ---
         let d_rng4 = hash(ad_rng ^ 0xd1550004u);
@@ -836,6 +894,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (ac2_br == OIL && (d_rng4 % 100u) < 10u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 2u; }
         else if (ac2_br == GUNPOWDER && (d_rng4 % 100u) < 5u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 3u; }
         else if (ac2_br == BOMB && (d_rng4 % 100u) < 3u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 5u; }
+        else if (ac2_br == PLANT && (d_rng4 % 100u) < 8u) { br = makeCell(SMOKE, (d_rng4 >> 8u) & 0xFFu, 30u + d_rng4 % 20u); dissolved += 2u; }
 
         // Deduct potency from acid cells (split cost across acid cells in block)
         if (dissolved > 0u && acid_count > 0u) {
@@ -846,6 +905,38 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
           if (ac2_bl == ACID) { let p = getLifetime(bl); if (p > cost_per) { bl = setLifetime(bl, p - cost_per); } else { bl = 0u; } }
           if (ac2_br == ACID) { let p = getLifetime(br); if (p > cost_per) { br = setLifetime(br, p - cost_per); } else { br = 0u; } }
         }
+      }
+    }
+  }
+
+  // === ALCHEMY: plant + water → plant growth ===
+  // Water adjacent to plant in a 2x2 block is consumed → becomes new plant (~3%/pass).
+  // Creates organic spreading growth.
+  {
+    let pt_tl = getElement(tl);
+    let pt_tr = getElement(tr);
+    let pt_bl = getElement(bl);
+    let pt_br = getElement(br);
+
+    let has_plant_g = (pt_tl == PLANT || pt_tr == PLANT || pt_bl == PLANT || pt_br == PLANT);
+    let has_water_g = (pt_tl == WATER || pt_tr == WATER || pt_bl == WATER || pt_br == WATER);
+
+    if (has_plant_g && has_water_g) {
+      let pt_rng = hash(rng1 ^ 0xbee00001u);
+      if (pt_tl == WATER && (pt_rng % 100u) < 3u) {
+        tl = makeCell(PLANT, (pt_rng >> 8u) & 0xFFu, 0u);
+      }
+      let pt_rng2 = hash(pt_rng ^ 0xbee00002u);
+      if (pt_tr == WATER && (pt_rng2 % 100u) < 3u) {
+        tr = makeCell(PLANT, (pt_rng2 >> 8u) & 0xFFu, 0u);
+      }
+      let pt_rng3 = hash(pt_rng2 ^ 0xbee00003u);
+      if (pt_bl == WATER && (pt_rng3 % 100u) < 3u) {
+        bl = makeCell(PLANT, (pt_rng3 >> 8u) & 0xFFu, 0u);
+      }
+      let pt_rng4 = hash(pt_rng3 ^ 0xbee00004u);
+      if (pt_br == WATER && (pt_rng4 % 100u) < 3u) {
+        br = makeCell(PLANT, (pt_rng4 >> 8u) & 0xFFu, 0u);
       }
     }
   }
@@ -962,6 +1053,24 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         let fx_rng4 = hash(fx_rng3 ^ 0xC0D0E0F0u);
         if (hx_br == WOOD && (fx_rng4 & 2047u) == 0u) {
           br = makeCell(FIRE, (fx_rng4 >> 8u) & 0xFFu, 80u + fx_rng4 % 60u);
+        }
+
+        // Hot stone (>150) ignites plant (~0.05% per pass, same as wood)
+        let pl_hrng = hash(fx_rng4 ^ 0xface0001u);
+        if (hx_tl == PLANT && (pl_hrng & 2047u) == 0u) {
+          tl = makeCell(FIRE, (pl_hrng >> 8u) & 0xFFu, 80u + pl_hrng % 60u);
+        }
+        let pl_hrng2 = hash(pl_hrng ^ 0xface0002u);
+        if (hx_tr == PLANT && (pl_hrng2 & 2047u) == 0u) {
+          tr = makeCell(FIRE, (pl_hrng2 >> 8u) & 0xFFu, 80u + pl_hrng2 % 60u);
+        }
+        let pl_hrng3 = hash(pl_hrng2 ^ 0xface0003u);
+        if (hx_bl == PLANT && (pl_hrng3 & 2047u) == 0u) {
+          bl = makeCell(FIRE, (pl_hrng3 >> 8u) & 0xFFu, 80u + pl_hrng3 % 60u);
+        }
+        let pl_hrng4 = hash(pl_hrng3 ^ 0xface0004u);
+        if (hx_br == PLANT && (pl_hrng4 & 2047u) == 0u) {
+          br = makeCell(FIRE, (pl_hrng4 >> 8u) & 0xFFu, 80u + pl_hrng4 % 60u);
         }
 
         // Hot stone (>150) ignites gunpowder (~1% per pass, 20x faster than wood)
