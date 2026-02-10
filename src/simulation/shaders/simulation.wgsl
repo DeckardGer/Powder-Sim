@@ -3,9 +3,11 @@
 // 4 passes per frame with alternating offsets eliminate directional bias.
 
 // Cell encoding: bits 0-7 = element type, bits 8-15 = color variation, bits 16-23 = lifetime (fire/steam)
+// Bit 24: molten flag — blast fire from stone leaves behind lava when it dies
 const ELEMENT_MASK: u32 = 0xFFu;
 const LIFETIME_SHIFT: u32 = 16u;
 const LIFETIME_MASK: u32 = 0xFFu;
+const MOLTEN_FLAG: u32 = 0x01000000u; // bit 24
 
 // Element types
 const EMPTY: u32 = 0u;
@@ -91,12 +93,23 @@ fn ageCell(cell: u32, rng: u32) -> u32 {
 
   if (element == FIRE) {
     let lifetime = getLifetime(cell);
-    if (lifetime == 0u) { return 0u; }
+    let is_molten = (cell & MOLTEN_FLAG) != 0u;
+    if (lifetime == 0u) {
+      // Molten fire (from blasted stone) → 30% lava, 70% normal death
+      if (is_molten && (rng % 100u) < 30u) {
+        return makeCell(LAVA, (rng >> 8u) & 0xFFu, 120u + rng % 60u);
+      }
+      return 0u;
+    }
     // ~1.5% chance to age per pass (24 passes * 1.5% ~ 0.36 age/frame)
     let should_age = (rng & 63u) == 0u;
     if (should_age) {
       let new_lt = lifetime - 1u;
       if (new_lt == 0u) {
+        // Molten fire → 30% lava, 70% normal death
+        if (is_molten && (rng % 100u) < 30u) {
+          return makeCell(LAVA, (rng >> 8u) & 0xFFu, 120u + rng % 60u);
+        }
         // Fire dies: 50% chance → smoke, 50% → empty
         if (((rng >> 7u) & 1u) == 1u) {
           let smoke_cv = (rng >> 8u) & 0xFFu;
@@ -470,11 +483,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
     if (has_fire_bm && has_bomb) {
       let bm_rng = hash(rng1 ^ 0xb00b0001u);
-      // Convert every cell in block to blast fire or smoke
+      // Convert every cell in block to blast fire or smoke.
+      // Stone → molten blast fire (leaves lava). Glass → full-strength blast fire (shatters).
       if (bm_tl == BOMB || bm_tl == FIRE) {
         tl = makeCell(FIRE, (bm_rng >> 8u) & 0xFFu, 250u);
       } else if (bm_tl == EMPTY) {
         tl = makeCell(SMOKE, (bm_rng >> 8u) & 0xFFu, 60u + bm_rng % 40u);
+      } else if (bm_tl == STONE) {
+        tl = makeCell(FIRE, (bm_rng >> 8u) & 0xFFu, 240u) | MOLTEN_FLAG;
       } else if (bm_tl != SMOKE && bm_tl != STEAM) {
         tl = makeCell(FIRE, (bm_rng >> 8u) & 0xFFu, 240u);
       }
@@ -483,6 +499,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         tr = makeCell(FIRE, (bm_rng2 >> 8u) & 0xFFu, 250u);
       } else if (bm_tr == EMPTY) {
         tr = makeCell(SMOKE, (bm_rng2 >> 8u) & 0xFFu, 60u + bm_rng2 % 40u);
+      } else if (bm_tr == STONE) {
+        tr = makeCell(FIRE, (bm_rng2 >> 8u) & 0xFFu, 240u) | MOLTEN_FLAG;
       } else if (bm_tr != SMOKE && bm_tr != STEAM) {
         tr = makeCell(FIRE, (bm_rng2 >> 8u) & 0xFFu, 240u);
       }
@@ -491,6 +509,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         bl = makeCell(FIRE, (bm_rng3 >> 8u) & 0xFFu, 250u);
       } else if (bm_bl == EMPTY) {
         bl = makeCell(SMOKE, (bm_rng3 >> 8u) & 0xFFu, 60u + bm_rng3 % 40u);
+      } else if (bm_bl == STONE) {
+        bl = makeCell(FIRE, (bm_rng3 >> 8u) & 0xFFu, 240u) | MOLTEN_FLAG;
       } else if (bm_bl != SMOKE && bm_bl != STEAM) {
         bl = makeCell(FIRE, (bm_rng3 >> 8u) & 0xFFu, 240u);
       }
@@ -499,6 +519,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         br = makeCell(FIRE, (bm_rng4 >> 8u) & 0xFFu, 250u);
       } else if (bm_br == EMPTY) {
         br = makeCell(SMOKE, (bm_rng4 >> 8u) & 0xFFu, 60u + bm_rng4 % 40u);
+      } else if (bm_br == STONE) {
+        br = makeCell(FIRE, (bm_rng4 >> 8u) & 0xFFu, 240u) | MOLTEN_FLAG;
       } else if (bm_br != SMOKE && bm_br != STEAM) {
         br = makeCell(FIRE, (bm_rng4 >> 8u) & 0xFFu, 240u);
       }
@@ -507,8 +529,8 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   // === ALCHEMY: blast fire propagation (lt > 200) ===
   // High-lifetime fire from bomb detonation aggressively converts neighbors.
-  // Each hop reduces lifetime by 8-12, creating natural radius decay.
-  // Stone and glass survive; everything else is consumed.
+  // Each hop reduces lifetime by 3-5, giving ~20 cell blast radius.
+  // Stone → lava, glass → smoke (shatters), everything else → fire.
   {
     let bf_tl = getElement(tl);
     let bf_tr = getElement(tr);
@@ -528,47 +550,57 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       let bf_rng3 = hash(bf_rng2 ^ 0xb1a50003u);
       let bf_rng4 = hash(bf_rng3 ^ 0xb1a50004u);
 
-      // Convert each non-blast-fire cell
+      // Convert each non-blast-fire cell. Blast propagates through everything.
+      // Stone → molten blast fire (becomes lava when fire dies). Glass → blast fire (zero decay, shatters).
+      // Water → steam, acid → smoke. Everything else → blast fire.
       if (bf_tl != FIRE || getLifetime(tl) <= 200u) {
-        let decay = 8u + (bf_rng % 5u); // 8-12
+        let decay = 2u + (bf_rng % 3u); // 2-4
         let new_lt = max_blast_lt - min(decay, max_blast_lt);
         if (bf_tl == BOMB) { tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, 250u); }
         else if (bf_tl == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng % 4u), max_blast_lt), 255u); tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, amp_lt); }
         else if (bf_tl == WATER) { tl = makeCell(STEAM, (bf_rng >> 8u) & 0xFFu, 80u + bf_rng % 60u); }
         else if (bf_tl == ACID) { tl = makeCell(SMOKE, (bf_rng >> 8u) & 0xFFu, 40u + bf_rng % 30u); }
+        else if (bf_tl == STONE) { tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, new_lt) | MOLTEN_FLAG; }
+        else if (bf_tl == GLASS) { tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, new_lt); }
         else if (bf_tl == SMOKE || bf_tl == STEAM) { /* already gaseous */ }
         else if (bf_tl != FIRE) { tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, new_lt); }
       }
 
       if (bf_tr != FIRE || getLifetime(tr) <= 200u) {
-        let decay = 8u + (bf_rng2 % 5u);
+        let decay = 2u + (bf_rng2 % 3u);
         let new_lt = max_blast_lt - min(decay, max_blast_lt);
         if (bf_tr == BOMB) { tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, 250u); }
         else if (bf_tr == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng2 % 4u), max_blast_lt), 255u); tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, amp_lt); }
         else if (bf_tr == WATER) { tr = makeCell(STEAM, (bf_rng2 >> 8u) & 0xFFu, 80u + bf_rng2 % 60u); }
         else if (bf_tr == ACID) { tr = makeCell(SMOKE, (bf_rng2 >> 8u) & 0xFFu, 40u + bf_rng2 % 30u); }
+        else if (bf_tr == STONE) { tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, new_lt) | MOLTEN_FLAG; }
+        else if (bf_tr == GLASS) { tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, new_lt); }
         else if (bf_tr == SMOKE || bf_tr == STEAM) { /* already gaseous */ }
         else if (bf_tr != FIRE) { tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, new_lt); }
       }
 
       if (bf_bl != FIRE || getLifetime(bl) <= 200u) {
-        let decay = 8u + (bf_rng3 % 5u);
+        let decay = 2u + (bf_rng3 % 3u);
         let new_lt = max_blast_lt - min(decay, max_blast_lt);
         if (bf_bl == BOMB) { bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, 250u); }
         else if (bf_bl == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng3 % 4u), max_blast_lt), 255u); bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, amp_lt); }
         else if (bf_bl == WATER) { bl = makeCell(STEAM, (bf_rng3 >> 8u) & 0xFFu, 80u + bf_rng3 % 60u); }
         else if (bf_bl == ACID) { bl = makeCell(SMOKE, (bf_rng3 >> 8u) & 0xFFu, 40u + bf_rng3 % 30u); }
+        else if (bf_bl == STONE) { bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, new_lt) | MOLTEN_FLAG; }
+        else if (bf_bl == GLASS) { bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, new_lt); }
         else if (bf_bl == SMOKE || bf_bl == STEAM) { /* already gaseous */ }
         else if (bf_bl != FIRE) { bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, new_lt); }
       }
 
       if (bf_br != FIRE || getLifetime(br) <= 200u) {
-        let decay = 8u + (bf_rng4 % 5u);
+        let decay = 2u + (bf_rng4 % 3u);
         let new_lt = max_blast_lt - min(decay, max_blast_lt);
         if (bf_br == BOMB) { br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, 250u); }
         else if (bf_br == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng4 % 4u), max_blast_lt), 255u); br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, amp_lt); }
         else if (bf_br == WATER) { br = makeCell(STEAM, (bf_rng4 >> 8u) & 0xFFu, 80u + bf_rng4 % 60u); }
         else if (bf_br == ACID) { br = makeCell(SMOKE, (bf_rng4 >> 8u) & 0xFFu, 40u + bf_rng4 % 30u); }
+        else if (bf_br == STONE) { br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, new_lt) | MOLTEN_FLAG; }
+        else if (bf_br == GLASS) { br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, new_lt); }
         else if (bf_br == SMOKE || bf_br == STEAM) { /* already gaseous */ }
         else if (bf_br != FIRE) { br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, new_lt); }
       }
