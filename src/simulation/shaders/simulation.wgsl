@@ -475,7 +475,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         tl = makeCell(FIRE, (bm_rng >> 8u) & 0xFFu, 250u);
       } else if (bm_tl == EMPTY) {
         tl = makeCell(SMOKE, (bm_rng >> 8u) & 0xFFu, 60u + bm_rng % 40u);
-      } else if (!isImmovable(bm_tl)) {
+      } else if (bm_tl != SMOKE && bm_tl != STEAM) {
         tl = makeCell(FIRE, (bm_rng >> 8u) & 0xFFu, 240u);
       }
       let bm_rng2 = hash(bm_rng ^ 0xb00b0002u);
@@ -483,7 +483,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         tr = makeCell(FIRE, (bm_rng2 >> 8u) & 0xFFu, 250u);
       } else if (bm_tr == EMPTY) {
         tr = makeCell(SMOKE, (bm_rng2 >> 8u) & 0xFFu, 60u + bm_rng2 % 40u);
-      } else if (!isImmovable(bm_tr)) {
+      } else if (bm_tr != SMOKE && bm_tr != STEAM) {
         tr = makeCell(FIRE, (bm_rng2 >> 8u) & 0xFFu, 240u);
       }
       let bm_rng3 = hash(bm_rng2 ^ 0xb00b0003u);
@@ -491,7 +491,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         bl = makeCell(FIRE, (bm_rng3 >> 8u) & 0xFFu, 250u);
       } else if (bm_bl == EMPTY) {
         bl = makeCell(SMOKE, (bm_rng3 >> 8u) & 0xFFu, 60u + bm_rng3 % 40u);
-      } else if (!isImmovable(bm_bl)) {
+      } else if (bm_bl != SMOKE && bm_bl != STEAM) {
         bl = makeCell(FIRE, (bm_rng3 >> 8u) & 0xFFu, 240u);
       }
       let bm_rng4 = hash(bm_rng3 ^ 0xb00b0004u);
@@ -499,7 +499,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         br = makeCell(FIRE, (bm_rng4 >> 8u) & 0xFFu, 250u);
       } else if (bm_br == EMPTY) {
         br = makeCell(SMOKE, (bm_rng4 >> 8u) & 0xFFu, 60u + bm_rng4 % 40u);
-      } else if (!isImmovable(bm_br)) {
+      } else if (bm_br != SMOKE && bm_br != STEAM) {
         br = makeCell(FIRE, (bm_rng4 >> 8u) & 0xFFu, 240u);
       }
     }
@@ -536,8 +536,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (bf_tl == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng % 4u), max_blast_lt), 255u); tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, amp_lt); }
         else if (bf_tl == WATER) { tl = makeCell(STEAM, (bf_rng >> 8u) & 0xFFu, 80u + bf_rng % 60u); }
         else if (bf_tl == ACID) { tl = makeCell(SMOKE, (bf_rng >> 8u) & 0xFFu, 40u + bf_rng % 30u); }
-        else if (bf_tl == STONE) { let h = min(getLifetime(tl) + 10u, 255u); tl = setLifetime(tl, h); }
-        else if (bf_tl == GLASS || bf_tl == LAVA) { /* survives */ }
         else if (bf_tl == SMOKE || bf_tl == STEAM) { /* already gaseous */ }
         else if (bf_tl != FIRE) { tl = makeCell(FIRE, (bf_rng >> 8u) & 0xFFu, new_lt); }
       }
@@ -549,8 +547,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (bf_tr == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng2 % 4u), max_blast_lt), 255u); tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, amp_lt); }
         else if (bf_tr == WATER) { tr = makeCell(STEAM, (bf_rng2 >> 8u) & 0xFFu, 80u + bf_rng2 % 60u); }
         else if (bf_tr == ACID) { tr = makeCell(SMOKE, (bf_rng2 >> 8u) & 0xFFu, 40u + bf_rng2 % 30u); }
-        else if (bf_tr == STONE) { let h = min(getLifetime(tr) + 10u, 255u); tr = setLifetime(tr, h); }
-        else if (bf_tr == GLASS || bf_tr == LAVA) { /* survives */ }
         else if (bf_tr == SMOKE || bf_tr == STEAM) { /* already gaseous */ }
         else if (bf_tr != FIRE) { tr = makeCell(FIRE, (bf_rng2 >> 8u) & 0xFFu, new_lt); }
       }
@@ -562,8 +558,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (bf_bl == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng3 % 4u), max_blast_lt), 255u); bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, amp_lt); }
         else if (bf_bl == WATER) { bl = makeCell(STEAM, (bf_rng3 >> 8u) & 0xFFu, 80u + bf_rng3 % 60u); }
         else if (bf_bl == ACID) { bl = makeCell(SMOKE, (bf_rng3 >> 8u) & 0xFFu, 40u + bf_rng3 % 30u); }
-        else if (bf_bl == STONE) { let h = min(getLifetime(bl) + 10u, 255u); bl = setLifetime(bl, h); }
-        else if (bf_bl == GLASS || bf_bl == LAVA) { /* survives */ }
         else if (bf_bl == SMOKE || bf_bl == STEAM) { /* already gaseous */ }
         else if (bf_bl != FIRE) { bl = makeCell(FIRE, (bf_rng3 >> 8u) & 0xFFu, new_lt); }
       }
@@ -575,8 +569,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         else if (bf_br == GUNPOWDER) { let amp_lt = min(max_blast_lt - min(5u + (bf_rng4 % 4u), max_blast_lt), 255u); br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, amp_lt); }
         else if (bf_br == WATER) { br = makeCell(STEAM, (bf_rng4 >> 8u) & 0xFFu, 80u + bf_rng4 % 60u); }
         else if (bf_br == ACID) { br = makeCell(SMOKE, (bf_rng4 >> 8u) & 0xFFu, 40u + bf_rng4 % 30u); }
-        else if (bf_br == STONE) { let h = min(getLifetime(br) + 10u, 255u); br = setLifetime(br, h); }
-        else if (bf_br == GLASS || bf_br == LAVA) { /* survives */ }
         else if (bf_br == SMOKE || bf_br == STEAM) { /* already gaseous */ }
         else if (bf_br != FIRE) { br = makeCell(FIRE, (bf_rng4 >> 8u) & 0xFFu, new_lt); }
       }
