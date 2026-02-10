@@ -50,7 +50,7 @@ writeBuffer (uniforms x24) -> commandEncoder -> conditional write pass -> 24 com
 
 ### Cell Encoding (u32)
 
-- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7, Smoke=8, Oil=9, Lava=10, Acid=11, Gunpowder=12, Bomb=13, Plant=14)
+- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7, Smoke=8, Oil=9, Lava=10, Acid=11, Gunpowder=12, Bomb=13, Plant=14, Ice=15)
 - Bits 8-15: per-particle color variation
 - Bits 16-23: lifetime (fire/steam/smoke) or heat level (stone/lava) or potency (acid)
 - Bit 24: molten flag (blast fire from stone → lava on death)
@@ -58,7 +58,7 @@ writeBuffer (uniforms x24) -> commandEncoder -> conditional write pass -> 24 com
 
 ### Elements & Density
 
-Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Plant=9, Sand=10, Gunpowder=10, Glass=200, Bomb=255, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, Plant, Bomb, and Stone are immovable solids. Lava is a viscous movable liquid (50% gravity drag, 30% lateral spread). Acid is a corrosive liquid (no viscosity drag). Plant grows by consuming adjacent water (~3%/pass).
+Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Plant=9, Sand=10, Gunpowder=10, Ice=200, Glass=200, Bomb=255, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, Plant, Bomb, Stone, and Ice are immovable solids. Lava is a viscous movable liquid (50% gravity drag, 30% lateral spread). Acid is a corrosive liquid (no viscosity drag). Plant grows by consuming adjacent water (~3%/pass). Ice freezes adjacent water (~3%/pass).
 
 ## Critical Bugs (don't regress)
 
@@ -122,8 +122,16 @@ Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Plant
 - **Fire + Plant**: plant ignites at ~0.2%/pass → fire (lt 80-139). Same rate as wood.
 - **Lava + Plant**: plant ignites at ~10%/pass → fire.
 - **Acid + Plant**: dissolves at ~8%/pass → smoke. Acid loses 2 potency (same as wood).
+- **Ice**: immovable solid, density 200 (same as glass). Pale cyan color. No lifetime/aging.
+  Freezes adjacent water (~3%/pass, crystal growth). Melts from heat sources → water.
+  Steam near ice condenses back to water (~40%/pass). Fire/lava+water evaporation suppressed when ice present.
+- **Fire + Ice**: ice melts at ~10%/pass → water. Fire extinguished at ~10%/pass → empty. Fire not consumed by melting.
+- **Lava + Ice**: ice melts at ~30%/pass → water. Lava loses 3-4 heat per ice cell.
+- **Hot Stone (>100) + Ice**: ice melts at ~2%/pass → water.
+- **Acid + Ice**: ice dissolves at ~5%/pass → water (not smoke). Acid loses 3 potency.
+- **Steam + Ice**: steam condenses at ~40%/pass → water. Prevents excessive steam near ice.
 - **Bomb blast fire**: propagates through ALL elements (decay 2-4/hop, ~25 cell radius).
-  Stone → molten blast fire (bit 24 flag, 30% becomes lava on death). Glass → blast fire.
+  Stone → molten blast fire (bit 24 flag, 30% becomes lava on death). Glass/Ice → blast fire.
   Water → steam. Acid → smoke. Everything else → blast fire. Chain-detonates other bombs.
 
 ## WebGPU References
