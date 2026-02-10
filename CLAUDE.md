@@ -46,6 +46,7 @@ writeBuffer (uniforms x24) -> commandEncoder -> conditional write pass -> 24 com
 - `src/simulation/shaders/conditional_write.wgsl` — GPU-side brush write (only writes to empty cells)
 - `src/hooks/useWebGPU.ts` — GPU state hook (loading/error/ready)
 - `src/hooks/useSimulation.ts` — brush input, Bresenham, hold-to-draw interval
+- `src/components/CommandMenu.tsx` — Cmd+K/Ctrl+K command palette (cmdk + shadcn CommandDialog)
 - `src/types/index.ts` — ElementType (as const), SimulationConfig, BrushConfig, AppScreen
 
 ### Cell Encoding (u32)
