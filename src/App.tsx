@@ -8,11 +8,13 @@ import { TitleScreen } from "@/components/TitleScreen";
 import { SimulationCanvas } from "@/components/SimulationCanvas";
 import { StatusBar } from "@/components/StatusBar";
 import { Toolbar } from "@/components/Toolbar";
+import { CommandMenu } from "@/components/CommandMenu";
 
 function App() {
   const gpu = useWebGPU();
   const [screen, setScreen] = useState<AppScreen>("title");
   const [settings, setSettings] = useState<SimulationSettings>(DEFAULT_SETTINGS);
+  const [commandMenuOpen, setCommandMenuOpen] = useState(false);
   const [stats, setStats] = useState<SimulationStats>({
     fps: 0,
     particleCount: 0,
@@ -70,6 +72,14 @@ function App() {
     if (screen !== "simulation") return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCommandMenuOpen((prev) => !prev);
+        return;
+      }
+
+      if (commandMenuOpen) return;
+
       switch (e.key) {
         case "Escape":
           goBack();
@@ -91,7 +101,7 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [screen, goBack, handleBrushSizeChange, clearSimulation, brushRef]);
+  }, [screen, goBack, handleBrushSizeChange, clearSimulation, brushRef, commandMenuOpen]);
 
   if (gpu.status === "loading") {
     return (
@@ -138,6 +148,13 @@ function App() {
         onBack={goBack}
       />
       <StatusBar stats={stats} />
+      <CommandMenu
+        open={commandMenuOpen}
+        onOpenChange={setCommandMenuOpen}
+        onElementSelect={handleBrushElementChange}
+        onClear={clearSimulation}
+        onBack={goBack}
+      />
     </div>
   );
 }
