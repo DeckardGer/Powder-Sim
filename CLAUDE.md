@@ -50,14 +50,15 @@ writeBuffer (uniforms x24) -> commandEncoder -> conditional write pass -> 24 com
 
 ### Cell Encoding (u32)
 
-- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7, Smoke=8, Oil=9, Lava=10, Acid=11, Gunpowder=12)
+- Bits 0-7: element type (Empty=0, Sand=1, Water=2, Stone=3, Fire=4, Steam=5, Wood=6, Glass=7, Smoke=8, Oil=9, Lava=10, Acid=11, Gunpowder=12, Bomb=13, Plant=14)
 - Bits 8-15: per-particle color variation
-- Bits 16-23: lifetime (fire/steam/smoke) or heat level (stone/lava)
-- Bits 24-31: reserved
+- Bits 16-23: lifetime (fire/steam/smoke) or heat level (stone/lava) or potency (acid)
+- Bit 24: molten flag (blast fire from stone → lava on death)
+- Bits 25-31: reserved
 
 ### Elements & Density
 
-Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Sand=10, Gunpowder=10, Glass=200, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, and Stone are immovable solids. Lava is a viscous movable liquid (50% gravity drag, 30% lateral spread). Acid is a corrosive liquid (no viscosity drag).
+Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Plant=9, Sand=10, Gunpowder=10, Glass=200, Bomb=255, Stone=255. Denser elements sink via pairwise density comparison in 2x2 Margolus blocks. Wood, Glass, Plant, Bomb, and Stone are immovable solids. Lava is a viscous movable liquid (50% gravity drag, 30% lateral spread). Acid is a corrosive liquid (no viscosity drag). Plant grows by consuming adjacent water (~3%/pass).
 
 ## Critical Bugs (don't regress)
 
@@ -115,6 +116,15 @@ Fire=0, Smoke=1, Steam=1, Empty=2, Oil=4, Water=5, Acid=6, Lava=7, Wood=9, Sand=
   Empty cells → smoke at ~10%/pass. Fire unaffected.
 - **Lava + Gunpowder**: gunpowder → fire (lt 120-179) at ~30%/pass.
 - **Acid + Gunpowder**: dissolves at ~5%/pass → smoke. Acid loses 3 potency/gunpowder.
+- **Plant**: immovable solid, density 9 (same as wood). Forest green color. No lifetime/aging.
+  Grows by consuming adjacent water (~3%/pass). Burns like wood. Acid dissolves at ~8%/pass.
+- **Plant + Water**: water → plant at ~3%/pass (growth). Core mechanic — organic spreading.
+- **Fire + Plant**: plant ignites at ~0.2%/pass → fire (lt 80-139). Same rate as wood.
+- **Lava + Plant**: plant ignites at ~10%/pass → fire.
+- **Acid + Plant**: dissolves at ~8%/pass → smoke. Acid loses 2 potency (same as wood).
+- **Bomb blast fire**: propagates through ALL elements (decay 2-4/hop, ~25 cell radius).
+  Stone → molten blast fire (bit 24 flag, 30% becomes lava on death). Glass → blast fire.
+  Water → steam. Acid → smoke. Everything else → blast fire. Chain-detonates other bombs.
 
 ## WebGPU References
 
