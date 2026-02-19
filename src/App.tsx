@@ -9,7 +9,6 @@ import { SimulationCanvas } from "@/components/SimulationCanvas";
 import { StatusBar } from "@/components/StatusBar";
 import { Toolbar } from "@/components/Toolbar";
 import { CommandMenu } from "@/components/CommandMenu";
-import { Analytics } from "@vercel/analytics/react";
 
 function App() {
   const gpu = useWebGPU();
@@ -106,71 +105,57 @@ function App() {
 
   if (gpu.status === "loading") {
     return (
-      <>
-        <div className="flex h-screen w-screen items-center justify-center bg-background">
-          <p className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
-            INITIALIZING GPU...
-          </p>
-        </div>
-        <Analytics />
-      </>
+      <div className="flex h-screen w-screen items-center justify-center bg-background">
+        <p className="text-sm uppercase tracking-[0.3em] text-muted-foreground">
+          INITIALIZING GPU...
+        </p>
+      </div>
     );
   }
 
   if (gpu.status === "error") {
-    return (
-      <>
-        <GPUFallback error={gpu.error} />
-        <Analytics />
-      </>
-    );
+    return <GPUFallback error={gpu.error} />;
   }
 
   if (screen === "title") {
     return (
-      <>
-        <TitleScreen
-          settings={settings}
-          onPlay={(s) => {
-            setSettings(s);
-            handleBrushSizeChange(s.brushSize);
-            setScreen("simulation");
-          }}
-        />
-        <Analytics />
-      </>
+      <TitleScreen
+        settings={settings}
+        onPlay={(s) => {
+          setSettings(s);
+          handleBrushSizeChange(s.brushSize);
+          setScreen("simulation");
+        }}
+      />
     );
   }
 
   return (
-    <>
-      <div className="relative h-screen w-screen bg-background pb-8">
-        <SimulationCanvas
-          gpuContext={gpu.context}
-          config={simConfig}
-          onStatsUpdate={handleStatsUpdate}
-          onSimulationReady={setSimulation}
-          pointerHandlers={pointerHandlers}
-          onFlushCells={flushCells}
-        />
-        <Toolbar
-          brush={brushState}
-          onBrushSizeChange={handleBrushSizeChange}
-          onBrushElementChange={handleBrushElementChange}
-          onClear={clearSimulation}
-          onBack={goBack}
-        />
-        <StatusBar stats={stats} />
-        <CommandMenu
-          open={commandMenuOpen}
-          onOpenChange={setCommandMenuOpen}
-          onElementSelect={handleBrushElementChange}
-          onClear={clearSimulation}
-          onBack={goBack}
-        />
-      </div>
-      <Analytics />
-    </>
+    <div className="relative h-screen w-screen bg-background pb-8">
+      <SimulationCanvas
+        gpuContext={gpu.context}
+        config={simConfig}
+        onStatsUpdate={handleStatsUpdate}
+        onSimulationReady={setSimulation}
+        pointerHandlers={pointerHandlers}
+        onFlushCells={flushCells}
+      />
+      <Toolbar
+        brush={brushState}
+        onBrushSizeChange={handleBrushSizeChange}
+        onBrushElementChange={handleBrushElementChange}
+        onClear={clearSimulation}
+        onBack={goBack}
+      />
+      <StatusBar stats={stats} />
+      <CommandMenu
+        open={commandMenuOpen}
+        onOpenChange={setCommandMenuOpen}
+        onElementSelect={handleBrushElementChange}
+        onClear={clearSimulation}
+        onBack={goBack}
+      />
+    </div>
   );
 }
 
