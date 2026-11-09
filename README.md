@@ -98,3 +98,7 @@ WebGPU is required. The app shows a fallback screen if WebGPU is unavailable.
 | Edge | 113+ |
 | Safari | 18+ |
 | Firefox | Nightly (behind flag) |
+
+## License
+
+[MIT](LICENSE)
